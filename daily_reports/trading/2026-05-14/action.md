@@ -1,6 +1,6 @@
 # ⚪ 2026-05-14 — ⚪ ДЕРЖАТЬ (нет нового сигнала). p_up=nan < threshold.
 
-**Тикер**: `SLV`
+**Тикер**: `SLVRUBF`
 **Сигнал**: `HOLD`
 **p_up**: nan
 **p_short**: 0.0
@@ -11,21 +11,11 @@
 
 ## Paper trading status
 
-⏭ **Пропущено**: --no-paper-trade
+⏭ **Пропущено**: TINKOFF_TOKEN не задан в env
 
 ## Портфель Tinkoff
 ```
-=== Sandbox портфель ===
-  Account ID: df3d7a77-3e75-4274-8467-fe08085256ff
-  Total:      2,040,289.02 RUB
-  Shares:     0.00 RUB
-  Bonds:      0.00 RUB
-  ETF:        0.00 RUB
-  Currencies: 1,099,441.02 RUB
-  Futures:    940,848.00 RUB
-  Expected yield: {'units': '85', 'nano': 480800000}
-  Positions: 2
-    - currency figi=RUB000UTSTOM qty=1099441 avg=1
-    - futures figi=FSLVRUB00000 qty=48 avg=199
+ERROR rc=2: ERROR: переменная TINKOFF_TOKEN не задана.
+Создайте файл .env (см. .env.example) с токеном sandbox.
 
 ```

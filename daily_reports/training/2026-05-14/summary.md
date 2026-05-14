@@ -1,6 +1,6 @@
 # Training report — 2026-05-14
 
-**Run time (UTC)**: 2026-05-14T16:12:12.739858+00:00
+**Run time (UTC)**: 2026-05-14T18:16:49.979188+00:00
 **Model**: v25_cpcv
 
 ## Health check

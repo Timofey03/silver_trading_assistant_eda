@@ -1,7 +1,7 @@
 {
   "date": "2026-05-14",
-  "time_utc": "2026-05-14T16:12:12.881966+00:00",
-  "ticker": "SLV",
+  "time_utc": "2026-05-14T18:16:50.098756+00:00",
+  "ticker": "SLVRUBF",
   "signal": "HOLD",
   "p_up": NaN,
   "p_short": 0.0,
@@ -12,7 +12,7 @@
   "regime": "uptrend_medium",
   "paper_trade": {
     "executed": false,
-    "skipped_reason": "--no-paper-trade"
+    "skipped_reason": "TINKOFF_TOKEN не задан в env"
   },
-  "portfolio_status": "=== Sandbox портфель ===\n  Account ID: df3d7a77-3e75-4274-8467-fe08085256ff\n  Total:      2,040,289.02 RUB\n  Shares:     0.00 RUB\n  Bonds:      0.00 RUB\n  ETF:        0.00 RUB\n  Currencies: 1,099,441.02 RUB\n  Futures:    940,848.00 RUB\n  Expected yield: {'units': '85', 'nano': 480800000}\n  Positions: 2\n    - currency figi=RUB000UTSTOM qty=1099441 avg=1\n    - futures figi=FSLVRUB00000 qty=48 avg=199\n"
+  "portfolio_status": "ERROR rc=2: ERROR: переменная TINKOFF_TOKEN не задана.\nСоздайте файл .env (см. .env.example) с токеном sandbox.\n"
 }
