@@ -1,0 +1,12 @@
+{
+  "use_liquidity": true,
+  "use_vix": true,
+  "use_gsr": true,
+  "use_drawdown_kill": true,
+  "liquidity_pct_median": 0.5,
+  "vix_block_level": 25.0,
+  "vix_chg_5d_block": 2.0,
+  "gsr_z60_extreme_high": 2.0,
+  "gsr_z60_extreme_low": -2.0,
+  "dd_kill_threshold": -0.2
+}

@@ -1,0 +1,4 @@
+variant,split,n_obs,sharpe_per_trade,skew,kurt,psr,dsr
+v24_gated,valid,2,,0.0,3.0,,
+v24_gated,test,10,0.2249,0.368,1.681,0.7614,0.4679
+v24_gated,forward,11,0.4607,0.909,3.222,0.9707,0.4151

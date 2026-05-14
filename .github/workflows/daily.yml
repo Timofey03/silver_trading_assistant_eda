@@ -1,0 +1,63 @@
+name: Daily Silver Assistant
+
+on:
+  schedule:
+    # 19:30 MSK = 16:30 UTC, после закрытия MOEX
+    - cron: '30 16 * * 1-5'   # Пн-Пт
+  workflow_dispatch:            # ручной запуск из UI GitHub
+
+permissions:
+  contents: write               # нужно чтобы коммитить отчёты обратно
+
+jobs:
+  daily-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install python-dotenv
+
+      - name: Run daily pipeline (training + signals + paper trading)
+        env:
+          TINKOFF_TOKEN: ${{ secrets.TINKOFF_TOKEN }}
+          TINKOFF_MODE: sandbox
+          TINKOFF_SILVER_TICKER: SLVRUBF
+        run: |
+          python scripts/daily_run.py
+        continue-on-error: true   # отчёты всё равно сохранятся
+
+      - name: Commit reports back to repo
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add daily_reports/ baseline_outputs_v22/ baseline_outputs_v25/ || true
+          if git diff --cached --quiet; then
+            echo "Нет изменений для коммита"
+          else
+            git commit -m "Daily run $(date -u +%Y-%m-%d) [skip ci]"
+            git push
+          fi
+
+      - name: Upload artifacts (хранятся 90 дней)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-reports-${{ github.run_id }}
+          path: daily_reports/
+          retention-days: 90

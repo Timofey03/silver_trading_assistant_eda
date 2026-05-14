@@ -1,0 +1,4 @@
+direction,signal_date,entry_date,exit_date,entry_price,exit_price,peak_price,trough_price,trail_stop,gross_return,net_return,hold_days,exit_reason,tb_label_bin,tb_label_down,realistic_cost,is_illiquid,net_return_v22
+LONG,2023-01-02,2023-01-02,2023-02-03,23.862,22.334,24.53,,22.568,-0.064035,-0.06985579886524138,24,trail_stop,0.0,,0.005820798865241377,False,-0.064535
+LONG,2023-01-12,2023-01-12,2023-02-03,23.863,22.334,24.46,,22.503,-0.064074,-0.06996532205167678,16,trail_stop,0.0,,0.005891322051676784,False,-0.064574
+LONG,2023-02-13,2023-02-13,2023-03-07,21.818,20.054,21.99,,20.231,-0.080851,-0.08588976417328006,16,trail_stop,0.0,,0.005038764173280063,False,-0.081351

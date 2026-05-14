@@ -1,0 +1,41 @@
+{
+  "version": "v22",
+  "horizon_days": 15,
+  "top_features_n": 30,
+  "up_threshold": 0.44,
+  "cooldown": 7,
+  "trail_pct_default": 0.08,
+  "atr_k_long": 3.5,
+  "atr_k_short": 3.0,
+  "max_hold_long": 30,
+  "max_hold_short": 30,
+  "kelly_half": 0.5,
+  "max_kelly_frac": 0.25,
+  "horizons_multi": [
+    5,
+    15,
+    30
+  ],
+  "retrain_freq_days": 60,
+  "not_up_weight_adaptive": {
+    "valid": 1.84,
+    "test": 1.96,
+    "forward": 1.84
+  },
+  "not_down_weight_adaptive": {
+    "valid": 1.56,
+    "test": 1.53,
+    "forward": 1.58
+  },
+  "down_threshold": 0.42,
+  "short_cooldown": 15,
+  "short_blocked_regimes": [
+    "uptrend"
+  ],
+  "expand_cutoffs": {
+    "valid": "2022-12-31",
+    "test": "2023-12-31",
+    "forward": "2024-12-31"
+  },
+  "atr_period": 14
+}

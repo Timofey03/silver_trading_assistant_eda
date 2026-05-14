@@ -1,0 +1,16 @@
+component,delta,split
+model_signal,-0.22406304096811458,valid
+execution_atr,0.21536230379864552,valid
+sizing_kelly,-0.0026653813541642757,valid
+realism_costs,-0.07579413882444719,valid
+TOTAL_REALISTIC,-0.08716025734808053,valid
+model_signal,0.039998768548632935,test
+execution_atr,0.17327503664261146,test
+sizing_kelly,0.035687961583932726,test
+realism_costs,-0.12689838097950457,test
+TOTAL_REALISTIC,0.12206338579567255,test
+model_signal,2.4065523520871404,forward
+execution_atr,-0.8526689225054822,forward
+sizing_kelly,0.17085074284027346,forward
+realism_costs,-0.45804691936317443,forward
+TOTAL_REALISTIC,1.2666872530587572,forward

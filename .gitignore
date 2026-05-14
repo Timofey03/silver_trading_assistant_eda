@@ -1,0 +1,33 @@
+# Секреты и креды — НИКОГДА не коммитить
+.env
+.env.local
+.env.*
+!.env.example
+*.env
+secrets/
+credentials/
+*.token
+*.pem
+*.key
+
+# Кэши/venv
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Локальные данные (если большие)
+*.csv.bak
+*.pickle
+
+# IDE
+.vscode/
+.idea/
+.claude/
+
+# Архив старых версий — локальный бэкап, не для GitHub (175MB)
+_archive/
+
+# Daily run кэш (генерируется автоматически на GitHub Actions)
+daily_reports/cache/

@@ -1,0 +1,3 @@
+variant,split,n_obs,tr_lower,tr_median,tr_upper,shr_lower,shr_median,shr_upper,mdd_lower,mdd_median,mdd_upper
+v24_gated,test,10,-0.0915,0.1248,0.4123,-1.024,1.129,2.938,-0.1639,-0.0903,-0.0252
+v24_gated,forward,11,-0.1347,0.7556,2.4881,-0.7,2.205,5.547,-0.2982,-0.1996,-0.0121
