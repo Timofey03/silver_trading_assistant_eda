@@ -1,4 +1,4 @@
 split,date,silver_close,signal_long,signal_short,p_up,p_short,trend_regime,atr_k_long,atr_k_short
-valid,2023-12-29,23.85,HOLD,SHORT,0.3262,0.4232,downtrend,3.5,3.0
-test,2024-12-31,28.94,BUY,HOLD,0.5714,0.411,downtrend,3.5,3.0
-forward,2026-05-12,85.13,HOLD,HOLD,0.4808,0.5015,uptrend,3.5,3.0
+valid,2023-12-29,23.85,HOLD,SHORT,0.0597,0.5966,downtrend,2.0,3.0
+test,2024-12-31,28.94,BUY,HOLD,0.6065,0.3752,downtrend,2.0,3.0
+forward,2026-05-14,84.91,HOLD,HOLD,0.4541,0.4541,uptrend,2.0,3.0

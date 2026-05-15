@@ -294,17 +294,23 @@ with col3:
     if st.button("🚀 Run daily"):
         import subprocess
         import sys as _sys
+        import os as _os
         with st.spinner("Запуск daily_run.py..."):
-            # Используем sys.executable — гарантирует тот же Python venv, что Streamlit
+            # Forces UTF-8 в subprocess (Windows default = cp1251 → mojibake)
+            env = _os.environ.copy()
+            env["PYTHONIOENCODING"] = "utf-8"
+            env["PYTHONUTF8"] = "1"
             r = subprocess.run(
                 [_sys.executable, "scripts/daily_run.py", "--skip-training"],
                 capture_output=True, text=True, timeout=300,
                 cwd=str(ROOT),
+                encoding="utf-8", errors="replace",
+                env=env,
             )
             if r.returncode == 0:
                 st.success("✅ Готово!")
                 if r.stdout:
-                    with st.expander("📋 Output"):
+                    with st.expander("📋 Output (последние 2KB)"):
                         st.code(r.stdout[-2000:])
             else:
                 st.error(f"Ошибка (rc={r.returncode}):")
