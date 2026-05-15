@@ -234,6 +234,55 @@ curl -H "Authorization: token $GH_PAT" \
 
 ---
 
+## 🌐 Деплой Streamlit-приложения (отдельно от Actions)
+
+GitHub Actions делает обучение и paper trading **бэкэндом**. Веб-приложение нужно деплоить отдельно. Лучший бесплатный вариант — **Streamlit Cloud**.
+
+### Streamlit Cloud (рекомендую — 5 минут)
+
+1. **Залогиниться на [share.streamlit.io](https://share.streamlit.io)** через GitHub
+2. **New app** → Connect repository → выбрать `Timofey03/silver_trading_assistant_eda`
+3. Параметры:
+   - **Branch**: `main`
+   - **Main file path**: `dashboard_app.py`
+   - **App URL** (custom): что-то вроде `silver-assistant-tim`
+4. **Advanced settings** → **Secrets**:
+   ```toml
+   TINKOFF_TOKEN = "t.YOUR_TOKEN_HERE"
+   TINKOFF_MODE = "sandbox"
+   TINKOFF_SILVER_TICKER = "SLVRUBF"
+   ```
+5. **Deploy**
+
+Через 3-5 минут получите URL типа `https://silver-assistant-tim.streamlit.app/`.
+
+**Особенности**:
+- ✅ Бесплатно для public repo (или 1 app на private)
+- ✅ Автоматически передеплоится при `git push`
+- ✅ HTTPS из коробки
+- ✅ Secrets management
+- ⚠ "Sleeps" после 7 дней неактивности — открывайте раз в неделю
+- ⚠ 1 GB RAM (хватит для нашего use case)
+
+### Альтернативы для приложения
+
+| Платформа | Цена | Плюсы | Минусы |
+|---|---|---|---|
+| **Streamlit Cloud** ⭐ | Free | Простота, прямая интеграция с GitHub | Sleeps |
+| Render | Free→$7 | Не sleeps на платном | Setup сложнее |
+| Railway | $5/мес | Постоянно онлайн | Платно |
+| Fly.io | Free→$5 | Edge-deploy | Сложнее настроить |
+| Hugging Face Spaces | Free | Хорошо для ML-приложений | Меньше Streamlit-фич |
+| Self-host VPS | от 200₽/мес | Полный контроль | Надо администрировать |
+
+### Локальный запуск (всегда работает)
+
+```powershell
+# В директории проекта
+streamlit run dashboard_app.py
+# Откроется http://localhost:8501
+```
+
 ## 🎓 Альтернативы GitHub Actions
 
 | Платформа | Плюсы | Минусы |

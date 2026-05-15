@@ -15,16 +15,44 @@ pip install -r requirements.txt
 # 2. Создать .env с Tinkoff sandbox токеном (см. .env.example)
 #    Токен получить: https://www.tinkoff.ru/invest/settings (sandbox-only!)
 
-# 3. Полный pipeline: v25 CPCV — главная актуальная модель
+# 3. Запустить веб-приложение
+streamlit run dashboard_app.py
+# → http://localhost:8501
+```
+
+## 📱 Веб-приложение (Streamlit)
+
+Полноценный пользовательский UI с 5 экранами:
+
+| Экран | Что показывает |
+|---|---|
+| 🏠 **Главная** | Большая карточка ⚪/🟢/🔴 с сигналом, KPI, equity curve |
+| 💰 **Портфель** | Live баланс Tinkoff, donut chart, открытые позиции, история ордеров |
+| 📊 **Сигналы** | Win rate, P&L каждой сделки, фильтры по периоду/типу |
+| 📈 **Графики** | Интерактивный candlestick + signals overlay + drawdown |
+| 🤖 **Модель** | Светофор DSR/PSR/Sharpe, bootstrap CI, drift detection |
+| ⚙ **Настройки** | Tinkoff conn, расписание, гейты, Telegram alerts |
+
+**Запуск**:
+```bash
+streamlit run dashboard_app.py
+```
+
+**Деплой в облако**: см. [docs/HOSTING.md](docs/HOSTING.md) → Streamlit Cloud (бесплатно, 5 минут).
+
+## 🛠 CLI инструменты
+
+```bash
+# Переобучить модель v25 CPCV
 python silver_assistant_v25_cpcv.py
 
-# 4. Paper trading в Tinkoff sandbox
+# Paper trading в Tinkoff sandbox
 python silver_paper_tinkoff.py --setup --initial-rub 1000000
 python silver_paper_tinkoff.py --find SLVRUBF
 python silver_paper_tinkoff.py --live --ticker SLVRUBF
 
-# 5. Дашборд (Streamlit)
-streamlit run dashboard_app.py
+# Полный daily цикл (то, что делает GitHub Actions)
+python scripts/daily_run.py
 ```
 
 ---
@@ -72,7 +100,23 @@ silver_trading_assistant_eda/
 │
 ├── silver_paper_tinkoff.py                ← Tinkoff REST API paper trading bridge
 ├── silver_spread_estimator.py             ← Бесплатный proxy spread (Corwin-Schultz)
-├── dashboard_app.py                       ← Streamlit dashboard
+│
+├── dashboard_app.py                       ← Streamlit 🏠 главная страница
+├── pages/                                  ← Остальные страницы веб-приложения
+│   ├── 1_💰_Портфель.py                  ← Tinkoff balance + positions
+│   ├── 2_📊_Сигналы.py                   ← История сигналов + win rate
+│   ├── 3_📈_Графики.py                   ← Candlestick + drawdown
+│   ├── 4_🤖_Модель.py                    ← DSR/PSR/drift detection
+│   └── 5_⚙_Настройки.py                  ← Tinkoff conn / schedule / alerts
+├── app/
+│   ├── utils.py                            ← cached data loaders + Tinkoff wrapper
+│   └── charts.py                           ← Plotly chart helpers
+│
+├── scripts/
+│   └── daily_run.py                        ← Главный скрипт daily automation
+├── .github/workflows/daily.yml             ← GitHub Actions cron (19:30 MSK)
+│
+├── daily_reports/                          ← Автогенерируемые отчёты (training + trading)
 │
 ├── baseline_outputs_v22/                  ← Канонические данные + v22 trades (32 файла)
 │   └── v22_full_data.csv                  ← 🔑 Главный датасет (3481 строка, 130+ фичей)
