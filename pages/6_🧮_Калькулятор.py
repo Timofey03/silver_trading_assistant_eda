@@ -53,7 +53,7 @@ inject_styles()
 defaults = {
     "calc_step":          1,
     "calc_savings":       1_000_000,
-    "calc_allocation":    20,
+    "calc_allocation":    30,           # Updated: 30% — реальный рекомендуемый уровень
     "calc_risk_level":    "medium",
 }
 for k, v in defaults.items():
@@ -161,13 +161,17 @@ def show_step_1() -> None:
     st.markdown("### 2. Какую часть готовы попробовать в серебре?")
 
     options = [
-        (5,  "5% — попробовать осторожно",         False),
-        (20, "20% — стандартная диверсификация",   True),  # рекомендуется
-        (50, "50% — большая ставка",                False),
-        (80, "80% — почти всё (⚠ рискованно)",    False),
+        (10, "10% — осторожно",                                 False),
+        (30, "30% — стандарт для торгуемого ML-помощника",      True),  # рекомендуется
+        (50, "50% — большая ставка",                            False),
+        (80, "80% — почти всё (⚠ рискованно)",                 False),
     ]
 
     current = st.session_state.calc_allocation
+    # Если в session_state старое значение (20 или 5) — мапим на новое
+    if current not in [v for v, _, _ in options]:
+        current = 30 if current == 20 else 10 if current == 5 else current
+        st.session_state.calc_allocation = current
     idx = next((i for i, (v, _, _) in enumerate(options) if v == current), 1)
 
     def format_option(opt):
@@ -188,14 +192,20 @@ def show_step_1() -> None:
     if selected_opt[0] == 80:
         st.error(
             "⚠ **80% в одном классе активов — слишком сильная концентрация.**\n\n"
-            "Финансовые консультанты обычно советуют 10-30% в каждый класс. "
-            "Если силвер просядет на 20% — потеряете 16% всех сбережений."
+            "Если silver просядет на 20% — потеряете 16% всех сбережений. "
+            "Рекомендую 30%."
         )
     elif selected_opt[0] == 50:
         st.warning(
             "💡 50% — серьёзная ставка. Подходит если вы уверены в долгосрочном "
             "росте металлов. При сильной просадке (-15%) потеряете 7.5% сбережений."
         )
+
+    # Info про compounding
+    st.success(
+        "🔄 **Compounding включён**: размер позиции пересчитывается **от текущего** "
+        "баланса каждый раз. Когда счёт растёт — ставки тоже растут пропорционально."
+    )
 
     with st.expander("🔍 Тех. детали: откуда берётся эта рекомендация?"):
         st.markdown("""

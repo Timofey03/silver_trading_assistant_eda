@@ -372,21 +372,50 @@ def build_trading_report(do_paper_trade: bool = True) -> None:
     elif action["signal"] not in ("BUY", "SHORT"):
         paper["skipped_reason"] = f"signal={action['signal']} — paper trade не нужен"
     else:
-        # Читаем пользовательский конфиг из калькулятора (если есть)
+        # Compounding: пересчитываем размер позиции от ТЕКУЩЕГО баланса Tinkoff
         user_cfg_path = REPO_ROOT / "baseline_outputs_prod" / "user_trading_config.json"
         live_args = [sys.executable, "silver_paper_tinkoff.py", "--live",
                      "--ticker", action["ticker"]]
         if user_cfg_path.exists():
             try:
                 user_cfg = json.loads(user_cfg_path.read_text(encoding="utf-8"))
-                lots = int(user_cfg.get("lots_target", 0))
-                if lots > 0:
-                    # Передаём кастомный размер из калькулятора
-                    live_args += ["--futures-max-lots", str(lots)]
-                    paper["user_config_applied"] = {
-                        "lots_target": lots,
-                        "risk_pct":    user_cfg.get("risk_pct_chosen"),
-                    }
+
+                # Получаем текущий баланс из Tinkoff sandbox
+                try:
+                    sys.path.insert(0, str(REPO_ROOT))
+                    from silver_paper_tinkoff import TinkoffClient, _load_account_id
+                    client = TinkoffClient(os.getenv("TINKOFF_TOKEN", ""))
+                    account_id = _load_account_id(client)
+                    portfolio = client.sandbox_portfolio(account_id)
+                    total = portfolio.get("totalAmountPortfolio", {})
+                    current_balance = int(total.get("units", 0)) + int(total.get("nano", 0)) / 1e9
+                except Exception as e:
+                    current_balance = float(user_cfg.get("savings_rub", 1_000_000))
+                    paper["balance_fetch_error"] = str(e)
+
+                allocation_pct = float(user_cfg.get("allocation_pct", 20))
+                risk_pct = float(user_cfg.get("risk_pct_chosen", 1.5))
+
+                # Compounding: размер позиции в % от ТЕКУЩЕГО баланса
+                LOT_NOTIONAL = 20_000  # SLVRUBF
+                STOP_PCT = 0.08
+
+                allocation_rub = current_balance * allocation_pct / 100
+                max_loss = current_balance * risk_pct / 100
+                position_by_risk = max_loss / STOP_PCT
+                position_actual = min(position_by_risk, allocation_rub)
+                lots = max(1, int(position_actual / LOT_NOTIONAL))
+
+                live_args += ["--futures-max-lots", str(lots)]
+                paper["user_config_applied"] = {
+                    "current_balance_rub": round(current_balance, 2),
+                    "allocation_pct":      allocation_pct,
+                    "allocation_rub":      round(allocation_rub, 2),
+                    "risk_pct":            risk_pct,
+                    "lots_dynamic":        lots,
+                    "lots_static":         int(user_cfg.get("lots_target", 0)),
+                    "compounding":         True,
+                }
             except Exception as e:
                 paper["user_config_error"] = str(e)
 

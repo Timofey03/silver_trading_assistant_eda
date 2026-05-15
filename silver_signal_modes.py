@@ -65,6 +65,9 @@ class SignalMode:
     trail_pct:    float    # trailing stop %
     max_hold:     int      # max holding days
     expected_trades_per_year: int
+    # Take profit улучшения
+    take_profit_pct: float = 0.0       # 0 = выключено; 0.15 = exit при +15%
+    aggressive_trail_after: float = 0.0  # после этой прибыли trail сокращается ×2
 
 
 # ⭐ OPTIMAL MODE — найдено через grid search (240 комбинаций),
@@ -73,13 +76,16 @@ class SignalMode:
 OPTIMAL_PARAMS = SignalMode(
     name="Optimal",
     description="Grid-search оптимум — самая доходная робастная конфигурация. "
-                "+64.5% forward (3x vs прежний Conservative).",
+                "+64.5% forward (3x vs прежний Conservative). "
+                "Take profit и aggressive trail тестировались — оба отрезают winners.",
     p_up_entry=0.49,
     p_up_exit=0.43,
     cooldown=15,
     trail_pct=0.08,
     max_hold=30,
     expected_trades_per_year=11,
+    take_profit_pct=0.0,             # ОТКЛЮЧЕНО — снижает доходность в trend-following
+    aggressive_trail_after=0.0,      # ОТКЛЮЧЕНО — режет большие движения
 )
 
 # Сохраняем PRESETS для обратной совместимости grid_search скрипта
@@ -198,10 +204,18 @@ def backtest_with_model_exits(
         entry_price = float(d.iloc[entry_pos]["silver_close"])
         peak        = entry_price
         trail_stop  = entry_price * (1.0 - mode.trail_pct)
+        current_trail = mode.trail_pct  # текущий trail может ужесточиться
 
         exit_idx = entry_pos
         exit_price = entry_price
         exit_reason = "max_hold"
+
+        # Take profit уровень (если включено)
+        tp_price = (entry_price * (1.0 + mode.take_profit_pct)
+                    if mode.take_profit_pct > 0 else float("inf"))
+        # Aggressive trail trigger
+        agg_trigger_price = (entry_price * (1.0 + mode.aggressive_trail_after)
+                             if mode.aggressive_trail_after > 0 else float("inf"))
 
         for j in range(1, mode.max_hold + 1):
             pos = entry_pos + j
@@ -214,7 +228,17 @@ def backtest_with_model_exits(
 
             if hi > peak:
                 peak = hi
-                trail_stop = peak * (1.0 - mode.trail_pct)
+                # Aggressive trail: после +10% уменьшаем trail вдвое
+                if peak >= agg_trigger_price and current_trail == mode.trail_pct:
+                    current_trail = mode.trail_pct * 0.5
+                trail_stop = peak * (1.0 - current_trail)
+
+            # Take profit (приоритет перед stop)
+            if hi >= tp_price:
+                exit_price = tp_price
+                exit_idx = pos
+                exit_reason = "take_profit"
+                break
 
             # Trailing stop check
             if lo <= trail_stop:
