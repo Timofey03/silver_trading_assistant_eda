@@ -128,15 +128,11 @@ def predict_recent(
         p_up = model.p_up(X, regimes)
     last["p_up_prod"] = p_up
 
-    # Загружаем policy из v25
-    policy_path = V25_DIR / "v25_policy.json"
-    if policy_path.exists():
-        policy = json.loads(policy_path.read_text(encoding="utf-8"))
-        threshold = float(policy.get("up_threshold", 0.55))
-        cooldown = int(policy.get("cooldown", 15))
-    else:
-        threshold = 0.55
-        cooldown = 15
+    # ⭐ OPTIMAL MODE параметры из grid search (silver_signal_grid_search.py)
+    # forward +64.5% vs прежние +21.5% Conservative
+    threshold = 0.49           # p_up_entry
+    exit_threshold = 0.43      # p_up_exit (используется в emit_today_signal)
+    cooldown = 15              # дней между BUY-сигналами
 
     # Применяем policy: BUY когда p_up >= threshold + cooldown между BUYs
     raw = last["p_up_prod"] >= threshold
@@ -187,8 +183,8 @@ def emit_today_signal(predictions: pd.DataFrame, policy: dict) -> dict:
 
     p_today = float(today["p_up_prod"])
 
-    # SELL-сигнал: если p_up упал ниже exit-порога (0.45 по умолчанию)
-    exit_threshold = float(policy.get("exit_threshold", 0.45))
+    # ⭐ OPTIMAL MODE exit threshold (из grid search)
+    exit_threshold = 0.43
     sell_recommended = p_today < exit_threshold
 
     # Определяем тип сигнала

@@ -1,0 +1,28 @@
+{
+  "p_up_entry": 0.53,
+  "p_up_exit": 0.43,
+  "cooldown": 12,
+  "trail_pct": 0.08,
+  "max_hold": 30,
+  "performance": {
+    "valid": {
+      "total_return": 0.0,
+      "n_trades": 0,
+      "win_rate": 0.0
+    },
+    "test": {
+      "total_return": 0.2134,
+      "n_trades": 6,
+      "win_rate": 0.5
+    },
+    "forward": {
+      "total_return": 0.4664,
+      "n_trades": 7,
+      "win_rate": 0.5714,
+      "sharpe": 1.338,
+      "max_drawdown": -0.0785
+    }
+  },
+  "composite_score": 0.315205,
+  "grid_size": 240
+}
