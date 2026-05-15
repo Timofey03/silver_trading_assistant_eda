@@ -138,6 +138,60 @@ st.markdown("---")
 st.markdown("### ⚠ Drift detection — изменился ли рынок vs обучающей выборки?")
 
 drift = load_drift_report()
+
+# Drift over time chart — собираем из всех daily_reports
+from pathlib import Path
+import os
+drift_history = []
+training_dir = Path("daily_reports") / "training"
+if training_dir.exists():
+    for date_dir in sorted(training_dir.iterdir()):
+        if date_dir.is_dir():
+            drift_file = date_dir / "feature_drift_train_vs_recent.csv"
+            if drift_file.exists():
+                try:
+                    df_d = pd.read_csv(drift_file)
+                    if "drift" in df_d.columns:
+                        n_total = len(df_d)
+                        n_drift = int(df_d["drift"].sum())
+                        drift_history.append({
+                            "date":       date_dir.name,
+                            "drift_rate": n_drift / max(n_total, 1),
+                            "n_drifted":  n_drift,
+                            "n_total":    n_total,
+                        })
+                except Exception:
+                    pass
+
+if drift_history:
+    import plotly.graph_objects as go
+    history_df = pd.DataFrame(drift_history)
+    fig_drift = go.Figure()
+    fig_drift.add_trace(go.Scatter(
+        x=history_df["date"], y=history_df["drift_rate"] * 100,
+        mode="lines+markers", name="Drift rate %",
+        line=dict(color="#FF6F61", width=3),
+        marker=dict(size=10),
+        fill="tozeroy", fillcolor="rgba(255,111,97,0.2)",
+    ))
+    fig_drift.add_hline(y=50, line_dash="dash", line_color="orange",
+                        annotation_text="50% — стоит мониторить")
+    fig_drift.add_hline(y=20, line_dash="dot", line_color="green",
+                        annotation_text="20% — зона комфорта")
+    fig_drift.update_layout(
+        title=dict(text="Drift rate во времени (% фичей с p<0.01)", font=dict(size=16)),
+        height=350,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#e0e0e0"),
+        margin=dict(l=10, r=10, t=40, b=10),
+        yaxis=dict(title="Drift rate (%)", range=[0, 100], gridcolor="rgba(255,255,255,0.1)"),
+        xaxis=dict(title="Дата training run", gridcolor="rgba(255,255,255,0.1)"),
+    )
+    st.plotly_chart(fig_drift, use_container_width=True)
+    st.caption(f"Истории {len(history_df)} daily runs. Тренд показывает, "
+                "стабилизируется ли модель vs изменяющегося рынка.")
+
 if drift.empty:
     st.info("Drift отчёт ещё не сгенерирован. Появится после следующего daily run.")
 else:

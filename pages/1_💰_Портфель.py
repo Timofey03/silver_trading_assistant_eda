@@ -51,20 +51,47 @@ if st.button("🔄 Обновить из Tinkoff", use_container_width=False):
 
 col1, col2, col3, col4 = st.columns(4)
 
+# Считаем реальный realized P&L (только non-cash positions)
+unrealized = 0.0
+for p in tinkoff["positions"]:
+    if p["instrument_type"] != "currency" and p["qty"] != 0:
+        avg = p.get("avg_price", 0)
+        cur = p.get("current_price", 0)
+        if avg and cur:
+            unrealized += (cur - avg) * p["qty"]
+
+# "Реальная" цифра счёта = Cash + unrealized P&L (без раздутого notional)
+real_value = tinkoff["cash"]["value"] + unrealized
+
 with col1:
-    st.metric("💵 Всего", rub(tinkoff["total"]["value"]),
-              delta=rub(tinkoff["expected_yield"]["value"]))
+    st.metric(
+        "💵 Всего (notional)", rub(tinkoff["total"]["value"]),
+        delta=rub(tinkoff["expected_yield"]["value"]),
+        help="Tinkoff показывает Cash + НОМИНАЛ futures. Это **не реальные деньги** — "
+             "реальное состояние счёта см. в карточке 'Реальный счёт'.",
+    )
 
 with col2:
-    st.metric("💰 Cash", rub(tinkoff["cash"]["value"]))
+    st.metric("💰 Cash", rub(tinkoff["cash"]["value"]),
+              help="Доступные деньги. Можно снять или открыть новые позиции.")
 
 with col3:
-    st.metric("📊 Futures", rub(tinkoff["futures"]["value"]))
+    st.metric(
+        "📊 Futures (notional)", rub(tinkoff["futures"]["value"]),
+        help="**Notional value** ваших фьючерсных позиций. "
+             "Это НЕ деньги, а ЭКСПОЗИЦИЯ на рынок: "
+             "notional = quote × multiplier × лоты. "
+             "Margin (реально заблокированные деньги) ≈ 10-15% от notional.",
+    )
 
 with col4:
-    n_pos = len([p for p in tinkoff["positions"]
-                 if p["qty"] != 0 and p["instrument_type"] != "currency"])
-    st.metric("Открытых позиций", n_pos)
+    st.metric(
+        "📈 Реальный счёт", rub(real_value),
+        delta=rub(unrealized),
+        delta_color="normal" if unrealized >= 0 else "inverse",
+        help="Cash + текущий unrealized P&L по открытым позициям. "
+             "Это реальная стоимость вашего счёта.",
+    )
 
 
 # =============================================================================
@@ -116,17 +143,42 @@ log = load_paper_trading_log()
 if log.empty:
     st.info("Лог paper trading пустой. Сделки появятся после первого `--replay` или `--live`.")
 else:
+    # Фильтр + кнопка очистки
+    col_filter, col_clear = st.columns([3, 1])
+    with col_filter:
+        filter_mode = st.radio(
+            "Показать", ["Все", "Только сработавшие", "Только ошибки"],
+            horizontal=True, label_visibility="collapsed",
+        )
+    with col_clear:
+        if st.button("🗑 Очистить лог", help="Удалить ВСЕ записи paper trading"):
+            from pathlib import Path
+            log_path = Path("baseline_outputs_v23") / "v23_paper_trading_log.csv"
+            try:
+                log_path.unlink()
+                st.success("✅ Лог очищен")
+                st.cache_data.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Ошибка: {e}")
+
     log_display = log.copy()
     if "ts_signal" in log_display.columns:
         log_display["ts_signal"] = log_display["ts_signal"].dt.strftime("%Y-%m-%d")
 
-    # Раскрашиваем по signal
+    # Применяем фильтр
+    if "executed" in log_display.columns:
+        if filter_mode == "Только сработавшие":
+            log_display = log_display[log_display["executed"] == True]
+        elif filter_mode == "Только ошибки":
+            log_display = log_display[log_display["executed"] != True]
+
     show_cols = ["ts_signal", "signal", "ticker", "direction", "lots",
                  "price", "executed", "error"]
     show_cols = [c for c in show_cols if c in log_display.columns]
 
     st.dataframe(
-        log_display[show_cols].iloc[::-1],   # последние сверху
+        log_display[show_cols].iloc[::-1],
         use_container_width=True, hide_index=True,
         column_config={
             "ts_signal": "Дата сигнала",
@@ -140,8 +192,10 @@ else:
         },
     )
 
-    st.caption(f"Всего записей: {len(log)} · "
-               f"Исполнено: {log['executed'].sum() if 'executed' in log.columns else '—'}")
+    n_exec = int(log["executed"].sum()) if "executed" in log.columns else 0
+    n_err = len(log) - n_exec
+    st.caption(f"Всего: {len(log)} · ✅ Исполнено: {n_exec} · ❌ Ошибок: {n_err} "
+               f"· Показано: {len(log_display)}")
 
 
 # =============================================================================

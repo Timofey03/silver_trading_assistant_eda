@@ -52,6 +52,14 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
+    auto_refresh = st.checkbox("⏱ Авто-обновление (60 сек)", value=False,
+                                 help="Перезагружает данные каждые 60 секунд")
+    if auto_refresh:
+        import time
+        time.sleep(60)
+        st.cache_data.clear()
+        st.rerun()
+
 
 # =============================================================================
 # Header
@@ -86,13 +94,21 @@ with col1:
 
 with col2:
     if tinkoff.get("ok"):
-        n_pos = len([p for p in tinkoff["positions"] if p["qty"] != 0])
+        non_cash = [p for p in tinkoff["positions"]
+                    if p["qty"] != 0 and p["instrument_type"] != "currency"]
+        n_pos = len(non_cash)
         futures_val = tinkoff["futures"]["value"]
-        st.metric("📊 Позиции", f"{n_pos}",
-                  delta=f"{rub(futures_val)} в futures",
-                  delta_color="off")
+        st.metric(
+            "📊 Открытых позиций", f"{n_pos}",
+            delta=f"{rub(futures_val)} notional",
+            delta_color="off",
+            help="Кол-во открытых позиций (без cash). "
+                 "Notional = квот.цена × множитель × кол-во лотов. "
+                 "Это ваша **экспозиция** на рынок, а не реальные деньги — "
+                 "маржа реально занимает 10-15% от notional.",
+        )
     else:
-        st.metric("📊 Позиции", "—")
+        st.metric("📊 Открытых позиций", "—")
 
 with col3:
     price = kpis.get("last_price", 0)
@@ -142,12 +158,35 @@ elif s == "SHORT" or sig.get("signal_short") == "SHORT":
 - Inverted trailing stop +7% от минимума
 """)
 else:
-    st.info(f"""
+    # HOLD — разделяем 2 кейса: cooldown (модель уверена, но ждём) и no_edge
+    above_thr = sig.get("above_threshold", False)
+    cooldown = sig.get("cooldown_remaining", 0)
+    trend_5d = sig.get("p_up_trend_5d")
+    trend_5d_pct = f"{trend_5d:.0%}" if trend_5d is not None else "—"
+
+    if above_thr and cooldown > 0:
+        st.warning(f"""
+**⏳ ДЕРЖАТЬ — модель уверена, но cooldown ещё активен**
+
+Модель **видит UP-сигнал**: p_up = **{p_up_pct}** (выше порога 55%).
+Тренд за последние 5 дней: **{trend_5d_pct}**.
+
+Но **cooldown ещё {cooldown} торговых дней** от последнего BUY-сигнала.
+
+**Что будет дальше**: если p_up останется выше 55% — через {cooldown} дней
+paper trading автоматически откроет позицию.
+
+- **Режим рынка**: `{sig.get('regime', '—')}`
+- **Текущая цена**: ${sig.get('current_price', 0):.2f}
+""")
+    else:
+        st.info(f"""
 **⚪ ДЕРЖАТЬ — нет нового сигнала**
 
 Модель не видит достаточно сильного сигнала для входа в позицию.
 
 - **Уверенность модели**: {p_up_pct} (нужно >55%)
+- **Тренд 5d**: {trend_5d_pct}
 - **Режим рынка**: `{sig.get('regime', '—')}`
 - **Текущая цена**: ${sig.get('current_price', 0):.2f}
 

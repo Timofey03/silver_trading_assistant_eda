@@ -15,6 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 V22_DIR = REPO_ROOT / "baseline_outputs_v22"
 V23_DIR = REPO_ROOT / "baseline_outputs_v23"
 V25_DIR = REPO_ROOT / "baseline_outputs_v25"
+PROD_DIR = REPO_ROOT / "baseline_outputs_prod"
 REPORTS_DIR = REPO_ROOT / "daily_reports"
 
 
@@ -157,35 +158,86 @@ def signal_color(signal: str) -> str:
 # =============================================================================
 
 @st.cache_data(ttl=60)
+def load_production_signal() -> dict:
+    """Свежий production-сигнал из production_signal_today.json (если есть)."""
+    p = PROD_DIR / "production_signal_today.json"
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=60)
+def load_production_predictions() -> pd.DataFrame:
+    """История production-предсказаний за последние ~30 дней."""
+    p = PROD_DIR / "production_predictions.csv"
+    if not p.exists():
+        return pd.DataFrame()
+    df = pd.read_csv(p, parse_dates=[0]).set_index("Date").sort_index()
+    df.index = pd.to_datetime(df.index)
+    return df
+
+
+@st.cache_data(ttl=60)
 def get_current_signal() -> dict:
     """
-    Возвращает свежий сигнал: ищет последний день с не-NaN p_up.
+    Возвращает свежий сигнал.
+
+    Приоритет: production_inference (свежий, на СЕГОДНЯ) → CPCV fallback (~неделя назад).
     """
+    prod = load_production_signal()
     d = load_decisions()
+
+    last_price = None
+    last_date = None
+    if not d.empty:
+        last_row = d.iloc[-1]
+        last_date = d.index[-1]
+        last_price = float(last_row.get("silver_close", 0)) if pd.notna(last_row.get("silver_close", float("nan"))) else None
+
+    # Если есть production-сигнал — используем его
+    if prod and prod.get("ok"):
+        return {
+            "source":            "production",
+            "signal":            prod["signal"],
+            "signal_short":      "HOLD",
+            "p_up":              prod["p_up"],
+            "p_up_trend_5d":     prod.get("p_up_trend_5d"),
+            "p_up_trend_10d":    prod.get("p_up_trend_10d"),
+            "p_up_trend_20d":    prod.get("p_up_trend_20d"),
+            "above_threshold":   prod.get("above_threshold"),
+            "threshold":         prod.get("threshold", 0.55),
+            "cooldown_remaining": prod.get("cooldown_remaining", 0),
+            "signal_date":       pd.Timestamp(prod["date"]),
+            "current_date":      last_date if last_date is not None else pd.Timestamp(prod["date"]),
+            "current_price":     last_price if last_price is not None else prod.get("silver_close"),
+            "regime":            prod.get("regime", "—"),
+        }
+
+    # Fallback: CPCV
     if d.empty:
-        return {"signal": "—", "p_up": None, "date": None, "price": None, "regime": "—"}
+        return {"signal": "—", "p_up": None, "signal_date": None,
+                "current_price": None, "regime": "—", "source": "none"}
 
-    # Берём последний день вообще (для текущей цены)
-    last_row = d.iloc[-1]
-    last_date = d.index[-1]
-
-    # Последний день с валидным p_up (для собственно сигнала)
     valid = d[d["p_up"].notna()]
     if not valid.empty:
         sig_row = valid.iloc[-1]
         sig_date = valid.index[-1]
     else:
-        sig_row = last_row
-        sig_date = last_date
+        sig_row = d.iloc[-1]
+        sig_date = d.index[-1]
 
     return {
-        "signal":      str(sig_row.get("signal_long", "HOLD")),
-        "signal_short": str(sig_row.get("signal_short", "HOLD")),
-        "p_up":        float(sig_row.get("p_up", 0)) if pd.notna(sig_row.get("p_up", float("nan"))) else None,
-        "signal_date": sig_date,
-        "current_date": last_date,
-        "current_price": float(last_row.get("silver_close", 0)) if pd.notna(last_row.get("silver_close", float("nan"))) else None,
-        "regime":      str(last_row.get("regime", "—")),
+        "source":         "cpcv_fallback",
+        "signal":         str(sig_row.get("signal_long", "HOLD")),
+        "signal_short":   str(sig_row.get("signal_short", "HOLD")),
+        "p_up":           float(sig_row.get("p_up", 0)) if pd.notna(sig_row.get("p_up", float("nan"))) else None,
+        "signal_date":    sig_date,
+        "current_date":   last_date,
+        "current_price":  last_price,
+        "regime":         str(d.iloc[-1].get("regime", "—")),
     }
 
 
@@ -302,7 +354,7 @@ def inject_styles() -> None:
 
 def top_signal_badge(sig: dict) -> None:
     """Большая карточка сигнала наверху страницы."""
-    s = sig["signal"]
+    s = sig.get("signal", "HOLD")
     css_class = {
         "BUY": "signal-buy",
         "SHORT": "signal-sell",
@@ -318,7 +370,24 @@ def top_signal_badge(sig: dict) -> None:
 
     p_up_txt = f"{sig['p_up']:.0%}" if sig.get("p_up") is not None else "—"
     price = sig.get("current_price") or 0
-    date_txt = sig["signal_date"].strftime("%d %b %Y") if sig.get("signal_date") is not None else "—"
+    source = sig.get("source", "unknown")
+
+    # Спец-кейс: HOLD но p_up > threshold (cooldown)
+    cooldown = sig.get("cooldown_remaining", 0)
+    above = sig.get("above_threshold", False)
+    extra = ""
+    if s == "HOLD" and above and cooldown > 0:
+        extra = f" &nbsp;·&nbsp; ⏳ cooldown ещё {cooldown}d → ожидается BUY"
+
+    if source == "production":
+        source_lbl = "🟢 production-модель (свежий)"
+        date_txt = f"Прогноз на {sig['signal_date'].strftime('%d %b %Y')}"
+    elif source == "cpcv_fallback":
+        source_lbl = "🟡 CPCV fallback (устаревший)"
+        date_txt = f"Сигнал от {sig['signal_date'].strftime('%d %b %Y')}"
+    else:
+        source_lbl = ""
+        date_txt = "—"
 
     st.markdown(f"""
     <div class="signal-card {css_class}">
@@ -326,7 +395,8 @@ def top_signal_badge(sig: dict) -> None:
         <p class="signal-sub">
             Серебро: ${price:.2f} &nbsp;·&nbsp;
             Уверенность модели: {p_up_txt} &nbsp;·&nbsp;
-            Сигнал от {date_txt}
+            {date_txt}{extra}
         </p>
+        <p style="font-size: 13px; opacity: 0.75; margin: 4px 0 0;">{source_lbl}</p>
     </div>
     """, unsafe_allow_html=True)

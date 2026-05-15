@@ -96,8 +96,15 @@ def refresh_data_if_stale(max_age_hours: int = 24) -> None:
 # ===========================================================================
 
 def retrain_v25() -> tuple[int, str]:
-    print("\n=== Шаг 2: v25 CPCV retrain ===")
-    return _run([sys.executable, "silver_assistant_v25_cpcv.py"], timeout=1800)
+    print("\n=== Шаг 2a: v25 CPCV retrain ===")
+    rc, out = _run([sys.executable, "silver_assistant_v25_cpcv.py"], timeout=1800)
+    print("\n=== Шаг 2b: production inference (signal на сегодня) ===")
+    rc_prod, out_prod = _run(
+        [sys.executable, "silver_production_inference.py"], timeout=600, check=False,
+    )
+    if rc_prod != 0:
+        print(f"  WARN: production inference failed, will fallback to CPCV signals")
+    return rc, out + "\n--- production ---\n" + out_prod
 
 
 # ===========================================================================
@@ -286,44 +293,75 @@ def build_trading_report(do_paper_trade: bool = True) -> None:
         "recommendation":  "HOLD — нет сигнала на сегодня",
     }
 
-    # 4.1 — Читаем v25 решения, ищем сегодняшнюю строку
+    # 4.1 — Сначала пытаемся загрузить production-сигнал (свежий, на сегодня)
+    prod_sig_path = REPO_ROOT / "baseline_outputs_prod" / "production_signal_today.json"
     try:
-        dec = pd.read_csv(V25_DIR / "v25_decisions.csv", parse_dates=[0])
-        dec = dec.set_index(dec.columns[0])
-        dec.index = pd.to_datetime(dec.index)
-        today_ts = pd.Timestamp(TODAY)
-        # Берём последнюю строку <= сегодня (рынок мог быть выходным)
-        recent = dec[dec.index <= today_ts]
-        if not recent.empty:
-            last = recent.iloc[-1]
-            action["actual_signal_date"] = last.name.strftime("%Y-%m-%d")
-            action["signal"]   = str(last.get("signal_long", "HOLD"))
-            action["p_up"]     = float(last.get("p_up", 0) or 0)
-            action["p_short"]  = float(last.get("p_short", 0) or 0)
-            action["regime"]   = str(last.get("regime", ""))
-            action["current_price"] = float(last.get("silver_close", 0) or 0)
-            action["rationale"] = (
-                f"p_up={action['p_up']:.3f} vs threshold; "
-                f"режим={action['regime']}"
-            )
-            if action["signal"] == "BUY":
-                action["recommendation"] = (
-                    f"🟢 КУПИТЬ {action['ticker']} — модель видит UP-сигнал "
-                    f"(p_up={action['p_up']:.2f}). "
-                    f"Trailing stop 7% от пика. Max hold 45 торговых дней."
+        if prod_sig_path.exists():
+            prod = json.loads(prod_sig_path.read_text(encoding="utf-8"))
+            if prod.get("ok"):
+                action["source"] = "production_inference"
+                action["actual_signal_date"] = prod["date"]
+                action["signal"] = prod["signal"]
+                action["p_up"] = prod["p_up"]
+                action["regime"] = prod["regime"]
+                action["current_price"] = prod["silver_close"]
+                action["p_up_trend_5d"] = prod.get("p_up_trend_5d")
+                action["p_up_trend_10d"] = prod.get("p_up_trend_10d")
+                action["above_threshold"] = prod.get("above_threshold")
+                action["cooldown_remaining"] = prod.get("cooldown_remaining")
+                action["rationale"] = (
+                    f"p_up={prod['p_up']:.3f}, "
+                    f"trend5d={prod.get('p_up_trend_5d', 'n/a')}, "
+                    f"режим={prod['regime']}, "
+                    f"cooldown ещё {prod.get('cooldown_remaining', 0)}d"
                 )
-            elif action["signal"] == "SHORT":
-                action["recommendation"] = (
-                    f"🔴 ПРОДАТЬ {action['ticker']} в шорт "
-                    f"(p_short={action['p_short']:.2f})."
-                )
-            else:
-                action["recommendation"] = (
-                    f"⚪ ДЕРЖАТЬ (нет нового сигнала). "
-                    f"p_up={action['p_up']:.2f} < threshold."
-                )
+                if prod["signal"] == "BUY":
+                    action["recommendation"] = (
+                        f"🟢 КУПИТЬ {action['ticker']} — production-модель видит UP "
+                        f"(p_up={prod['p_up']:.0%}). Trailing stop 7%, max hold 45d."
+                    )
+                elif prod["signal"] == "SHORT":
+                    action["recommendation"] = (
+                        f"🔴 ПРОДАТЬ {action['ticker']} в шорт (p={prod['p_up']:.0%})."
+                    )
+                elif prod.get("above_threshold") and prod.get("cooldown_remaining", 0) > 0:
+                    action["recommendation"] = (
+                        f"⚪ ДЕРЖАТЬ — модель уверена ({prod['p_up']:.0%} > 55%), "
+                        f"но cooldown ещё {prod['cooldown_remaining']}d. "
+                        f"После cooldown ожидается BUY-сигнал."
+                    )
+                else:
+                    action["recommendation"] = (
+                        f"⚪ ДЕРЖАТЬ — p_up={prod['p_up']:.0%} < threshold 55%."
+                    )
     except Exception as e:
-        action["error"] = f"v25_decisions read failed: {e}"
+        action["prod_inference_error"] = str(e)
+
+    # 4.2 — Fallback на v25 CPCV decisions, если production не доступен
+    if not action.get("source"):
+        try:
+            dec = pd.read_csv(V25_DIR / "v25_decisions.csv", parse_dates=[0])
+            dec = dec.set_index(dec.columns[0])
+            dec.index = pd.to_datetime(dec.index)
+            valid = dec[dec["p_up"].notna()]
+            if not valid.empty:
+                last = valid.iloc[-1]
+                action["source"] = "cpcv_fallback"
+                action["actual_signal_date"] = last.name.strftime("%Y-%m-%d")
+                action["signal"] = str(last.get("signal_long", "HOLD"))
+                action["p_up"] = float(last.get("p_up", 0) or 0)
+                action["p_short"] = float(last.get("p_short", 0) or 0)
+                action["regime"] = str(last.get("regime", ""))
+                action["current_price"] = float(last.get("silver_close", 0) or 0)
+                action["rationale"] = (
+                    f"[CPCV fallback] p_up={action['p_up']:.3f}, режим={action['regime']}"
+                )
+                action["recommendation"] = (
+                    f"{'🟢' if action['signal']=='BUY' else '⚪'} "
+                    f"{action['signal']} {action['ticker']} (CPCV signal, может быть устаревшим)"
+                )
+        except Exception as e:
+            action["error"] = f"both sources failed: {e}"
 
     # 4.2 — Paper trading через Tinkoff (опционально)
     paper = {"executed": False, "skipped_reason": None}
