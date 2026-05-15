@@ -159,8 +159,20 @@ def signal_color(signal: str) -> str:
 
 @st.cache_data(ttl=60)
 def load_production_signal() -> dict:
-    """Свежий production-сигнал из production_signal_today.json (если есть)."""
+    """Свежий silver production-сигнал."""
     p = PROD_DIR / "production_signal_today.json"
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=60)
+def load_gold_signal() -> dict:
+    """Свежий gold production-сигнал."""
+    p = PROD_DIR / "gold_signal_today.json"
     if not p.exists():
         return {}
     try:

@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT))
 from app.utils import (
     load_decisions, load_pnl_summary, load_trades, load_dsr_psr,
     load_full_data, get_current_signal, get_kpis, get_tinkoff_status,
+    load_gold_signal,
     pct, rub, usd, signal_emoji,
     inject_styles, top_signal_badge,
 )
@@ -236,6 +237,44 @@ else:
 
 pnl = load_pnl_summary()
 dsr = load_dsr_psr()
+
+# =============================================================================
+# Gold signal — multi-asset (Session 3)
+# =============================================================================
+
+gold_sig = load_gold_signal()
+if gold_sig.get("ok"):
+    st.markdown("---")
+    st.markdown("### 🥇 Gold сигнал на сегодня")
+
+    g_signal = gold_sig.get("signal", "HOLD")
+    g_p_up = gold_sig.get("p_up", 0) or 0
+    g_emoji = {"BUY": "🟢", "SHORT": "🔴", "SELL": "🔴", "HOLD": "⚪"}.get(g_signal, "❔")
+
+    gc1, gc2, gc3, gc4 = st.columns(4)
+    with gc1:
+        st.metric(f"{g_emoji} Gold сигнал", g_signal)
+    with gc2:
+        st.metric("Уверенность (p_up)", f"{g_p_up:.0%}")
+    with gc3:
+        st.metric("Gold price", f"${gold_sig.get('gold_close', 0):.2f}")
+    with gc4:
+        cd = gold_sig.get("cooldown_remaining", 0)
+        if cd > 0:
+            st.metric("Cooldown", f"{cd}d")
+        else:
+            st.metric("Cooldown", "—")
+
+    g_above = gold_sig.get("above_threshold", False)
+    if g_signal == "BUY":
+        st.success(f"🟢 Gold BUY сигнал — модель уверена на {g_p_up:.0%}. "
+                    "При portfolio strategy paper trading купит GLDRUBF.")
+    elif g_signal == "SELL":
+        st.error(f"🔴 Gold SELL — p_up={g_p_up:.0%} ниже порога. Закрываем gold позиции.")
+    elif g_above:
+        st.warning(f"⏳ Gold — модель уверена ({g_p_up:.0%}), но cooldown {gold_sig.get('cooldown_remaining', 0)}d.")
+    else:
+        st.info(f"⚪ Gold — нет сигнала. p_up={g_p_up:.0%}, порог 49%.")
 
 # =============================================================================
 # Multi-asset portfolio results

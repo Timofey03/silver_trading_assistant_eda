@@ -656,6 +656,7 @@ def apply_settings(r: dict) -> None:
         "max_loss_per_trade_rub": float(r["actual_loss"]),
         "lots_target":            int(r["lots"]),
         "position_rub":           float(r["actual_position"]),
+        "strategy":               st.session_state.get("calc_strategy", "silver_only"),
         "applied_at":             datetime.now(timezone.utc).isoformat(),
     }
     CONFIG_PATH.write_text(

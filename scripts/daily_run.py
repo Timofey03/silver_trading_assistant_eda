@@ -96,15 +96,28 @@ def refresh_data_if_stale(max_age_hours: int = 24) -> None:
 # ===========================================================================
 
 def retrain_v25() -> tuple[int, str]:
-    print("\n=== Шаг 2a: v25 CPCV retrain ===")
+    print("\n=== Шаг 2a: v25 silver CPCV retrain ===")
     rc, out = _run([sys.executable, "silver_assistant_v25_cpcv.py"], timeout=1800)
-    print("\n=== Шаг 2b: production inference (signal на сегодня) ===")
+    print("\n=== Шаг 2b: silver production inference ===")
     rc_prod, out_prod = _run(
         [sys.executable, "silver_production_inference.py"], timeout=600, check=False,
     )
-    if rc_prod != 0:
-        print(f"  WARN: production inference failed, will fallback to CPCV signals")
-    return rc, out + "\n--- production ---\n" + out_prod
+
+    print("\n=== Шаг 2c: gold data refresh + retrain ===")
+    rc_gold_data, out_gold_data = _run(
+        [sys.executable, "silver_assistant_v26_multiasset.py", "--all"],
+        timeout=1800, check=False,
+    )
+
+    print("\n=== Шаг 2d: gold production inference ===")
+    rc_gold, out_gold = _run(
+        [sys.executable, "gold_production_inference.py"], timeout=600, check=False,
+    )
+
+    combined = (out + "\n--- silver prod ---\n" + out_prod
+                + "\n--- gold data ---\n" + out_gold_data
+                + "\n--- gold prod ---\n" + out_gold)
+    return rc, combined
 
 
 # ===========================================================================
@@ -438,6 +451,10 @@ def build_trading_report(do_paper_trade: bool = True) -> None:
     except Exception as e:
         action["portfolio_status"] = f"ERROR: {e}"
 
+    # 4.X — Обрабатываем gold отдельно (multi-asset)
+    gold_action = _build_gold_action(do_paper_trade=do_paper_trade)
+    action["gold"] = gold_action
+
     # 4.4 — Сохраняем
     (TRADING_DIR / "action.json").write_text(
         json.dumps(action, indent=2, ensure_ascii=False, default=str),
@@ -463,6 +480,109 @@ def build_trading_report(do_paper_trade: bool = True) -> None:
             encoding="utf-8",
         )
     print(f"  ✅ Trading report готов: {TRADING_DIR}")
+
+
+def _build_gold_action(do_paper_trade: bool = True) -> dict:
+    """Параллельный pipeline для gold — читает gold_signal_today.json + торгует GLDRUBF."""
+    g_action = {
+        "date":     TODAY,
+        "ticker":   os.getenv("TINKOFF_GOLD_TICKER", "GLDRUBF"),
+        "signal":   "HOLD",
+        "p_up":     None,
+        "current_price": None,
+    }
+
+    # Читаем gold production signal
+    prod_path = REPO_ROOT / "baseline_outputs_prod" / "gold_signal_today.json"
+    try:
+        if prod_path.exists():
+            prod = json.loads(prod_path.read_text(encoding="utf-8"))
+            if prod.get("ok"):
+                g_action["source"] = "production_inference"
+                g_action["actual_signal_date"] = prod["date"]
+                g_action["signal"]            = prod["signal"]
+                g_action["p_up"]              = prod["p_up"]
+                g_action["regime"]            = prod["regime"]
+                g_action["current_price"]     = prod["gold_close"]
+                g_action["p_up_trend_5d"]     = prod.get("p_up_trend_5d")
+                g_action["above_threshold"]   = prod.get("above_threshold")
+                g_action["cooldown_remaining"] = prod.get("cooldown_remaining")
+                g_action["rationale"] = (
+                    f"GOLD p_up={prod['p_up']:.3f}, "
+                    f"режим={prod['regime']}, "
+                    f"cooldown ещё {prod.get('cooldown_remaining', 0)}d"
+                )
+    except Exception as e:
+        g_action["prod_inference_error"] = str(e)
+
+    # Paper trade для gold
+    paper = {"executed": False, "skipped_reason": None}
+    if not do_paper_trade:
+        paper["skipped_reason"] = "--no-paper-trade"
+    elif not os.getenv("TINKOFF_TOKEN"):
+        paper["skipped_reason"] = "TINKOFF_TOKEN не задан"
+    elif g_action["signal"] not in ("BUY", "SHORT"):
+        paper["skipped_reason"] = f"signal={g_action['signal']} — paper trade не нужен"
+    else:
+        # Используем то же user_trading_config (если есть)
+        user_cfg_path = REPO_ROOT / "baseline_outputs_prod" / "user_trading_config.json"
+        live_args = [sys.executable, "silver_paper_tinkoff.py", "--live",
+                     "--ticker", g_action["ticker"]]
+        if user_cfg_path.exists():
+            try:
+                user_cfg = json.loads(user_cfg_path.read_text(encoding="utf-8"))
+                allocation_pct = float(user_cfg.get("allocation_pct", 30))
+                risk_pct = float(user_cfg.get("risk_pct_chosen", 1.5))
+
+                # Compounding с разделением gold/silver
+                try:
+                    sys.path.insert(0, str(REPO_ROOT))
+                    from silver_paper_tinkoff import TinkoffClient, _load_account_id
+                    client = TinkoffClient(os.getenv("TINKOFF_TOKEN", ""))
+                    account_id = _load_account_id(client)
+                    portfolio = client.sandbox_portfolio(account_id)
+                    total = portfolio.get("totalAmountPortfolio", {})
+                    current_balance = int(total.get("units", 0)) + int(total.get("nano", 0)) / 1e9
+                except Exception:
+                    current_balance = float(user_cfg.get("savings_rub", 1_000_000))
+
+                # GOLD получает 50% от общей allocation в portfolio mode
+                strategy = user_cfg.get("strategy", "silver_only")
+                if strategy == "portfolio":
+                    gold_share = 0.5
+                else:
+                    gold_share = 0.0  # silver_only — gold не торгуется
+
+                gold_allocation = current_balance * allocation_pct / 100 * gold_share
+                gold_max_loss = current_balance * risk_pct / 100 * gold_share
+
+                # GLDRUBF: 1 лот = квот × 10 (multiplier меньше чем у silver)
+                LOT_NOTIONAL = 10_000  # rough estimate, нужно проверить
+                STOP_PCT = 0.08
+                position_by_risk = gold_max_loss / STOP_PCT if STOP_PCT > 0 else 0
+                position_actual = min(position_by_risk, gold_allocation)
+                lots = max(1, int(position_actual / LOT_NOTIONAL)) if position_actual > 0 else 0
+
+                if lots > 0:
+                    live_args += ["--futures-max-lots", str(lots)]
+                    paper["lots_target"] = lots
+                    paper["compounding_balance"] = round(current_balance, 2)
+                    paper["strategy"] = strategy
+                else:
+                    paper["skipped_reason"] = "В strategy=silver_only gold не торгуется"
+            except Exception as e:
+                paper["user_config_error"] = str(e)
+
+        if not paper.get("skipped_reason"):
+            try:
+                rc, out = _run(live_args, check=False, timeout=120)
+                paper["executed"] = (rc == 0)
+                paper["raw_output"] = out[-1500:]
+            except Exception as e:
+                paper["error"] = str(e)
+
+    g_action["paper_trade"] = paper
+    return g_action
 
 
 def _format_trading_md(a: dict) -> str:
