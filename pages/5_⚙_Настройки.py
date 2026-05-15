@@ -111,6 +111,57 @@ with st.expander("Как изменить расписание"):
 # =============================================================================
 
 st.markdown("---")
+st.markdown("## 🎚 Режим агрессивности")
+
+modes_csv = ROOT / "baseline_outputs_modes" / "modes_comparison.csv"
+if modes_csv.exists():
+    modes_df = pd.read_csv(modes_csv)
+    fwd_modes = modes_df[modes_df["split"] == "forward"][
+        ["mode", "n_trades", "win_rate", "total_return", "sharpe_ann"]
+    ].copy()
+    fwd_modes["win_rate"] = fwd_modes["win_rate"].apply(lambda x: f"{x*100:.0f}%")
+    fwd_modes["total_return"] = fwd_modes["total_return"].apply(lambda x: f"{x*100:+.1f}%")
+    fwd_modes.columns = ["Режим", "Сделок/год", "Win rate", "Total return", "Sharpe"]
+
+    st.markdown("**Бэктест на forward split (2025+):**")
+    st.dataframe(fwd_modes, hide_index=True, use_container_width=True)
+
+    st.info("""
+**🏆 Рекомендуется: Balanced** — лучший Sharpe (1.31) + win rate 69% + total return +44%.
+
+**Conservative (текущий)** — слишком селективный (5 сделок/год, +21% return).
+**Aggressive** — больше шума, win rate падает до 45%.
+**Ultra** — теряет деньги (-22%).
+""")
+
+selected_mode = st.radio(
+    "Выберите режим помощника",
+    ["conservative", "balanced", "aggressive", "ultra"],
+    index=1,  # balanced рекомендован
+    help="Меняет пороги входа/выхода и cooldown. После смены — следующий daily run "
+         "будет использовать новые параметры.",
+    horizontal=True,
+)
+
+mode_params = {
+    "conservative": {"p_up_in": 0.55, "p_up_out": 0.40, "cooldown": 15, "trail": "8%"},
+    "balanced":     {"p_up_in": 0.52, "p_up_out": 0.45, "cooldown": 10, "trail": "7%"},
+    "aggressive":   {"p_up_in": 0.50, "p_up_out": 0.48, "cooldown":  5, "trail": "5%"},
+    "ultra":        {"p_up_in": 0.48, "p_up_out": 0.50, "cooldown":  3, "trail": "4%"},
+}
+mp = mode_params[selected_mode]
+st.caption(f"Параметры режима **{selected_mode}**: "
+            f"вход p_up≥{mp['p_up_in']}, выход p_up<{mp['p_up_out']}, "
+            f"cooldown={mp['cooldown']}d, trailing stop {mp['trail']}")
+
+if st.button("💾 Применить режим"):
+    cfg_path = ROOT / "baseline_outputs_modes" / "active_mode.json"
+    cfg_path.parent.mkdir(exist_ok=True)
+    cfg_path.write_text(json.dumps({"mode": selected_mode}, indent=2), encoding="utf-8")
+    st.success(f"✅ Режим '{selected_mode}' сохранён. Применится при следующем daily run.")
+
+
+st.markdown("---")
 st.markdown("## 💰 Размеры позиций")
 
 policy = load_policy()

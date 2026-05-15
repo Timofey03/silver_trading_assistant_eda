@@ -137,6 +137,66 @@ with col_table:
 # =============================================================================
 
 st.markdown("---")
+st.markdown("### 🎯 Рекомендации по открытым позициям")
+
+sig = get_current_signal()
+open_positions = [p for p in tinkoff["positions"]
+                  if p["qty"] != 0 and p["instrument_type"] != "currency"]
+
+if not open_positions:
+    st.info("Нет открытых позиций. Помощник ждёт нового BUY-сигнала.")
+else:
+    p_up = sig.get("p_up", 0.5)
+    exit_threshold = 0.45
+
+    if p_up is None:
+        st.warning("⚠ Нет актуального p_up для рекомендации.")
+    elif p_up < exit_threshold:
+        st.error(f"""
+🔴 **РЕКОМЕНДАЦИЯ: ЗАКРЫТЬ ПОЗИЦИИ**
+
+p_up = **{p_up:.0%}** упало ниже exit-порога **{exit_threshold:.0%}**.
+Модель **уже не уверена в росте** — лучше зафиксировать результат.
+
+- Открытых позиций: **{len(open_positions)}**
+- Текущий p_up: **{p_up:.0%}** (нужно ≥ {exit_threshold:.0%})
+""")
+        if st.button("⛔ Закрыть все LONG позиции"):
+            try:
+                from silver_paper_tinkoff import TinkoffClient, _load_account_id
+                import os
+                client = TinkoffClient(os.getenv("TINKOFF_TOKEN"))
+                account = _load_account_id(client)
+                closed = 0
+                for p in open_positions:
+                    if p["instrument_type"] == "futures" and p["qty"] > 0:
+                        client.sandbox_post_order(
+                            account, p["figi"], int(p["qty"]),
+                            "ORDER_DIRECTION_SELL",
+                        )
+                        closed += 1
+                st.success(f"✅ Закрыто {closed} позиций")
+                st.cache_data.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Ошибка: {e}")
+    elif p_up < 0.55:
+        st.warning(f"""
+⚠ **РЕКОМЕНДАЦИЯ: ДЕРЖАТЬ, но мониторить**
+
+p_up = **{p_up:.0%}** — в нейтральной зоне.
+Не пора закрывать, но и не входим новыми.
+""")
+    else:
+        st.success(f"""
+✅ **РЕКОМЕНДАЦИЯ: ДЕРЖАТЬ позиции**
+
+p_up = **{p_up:.0%}** — модель **уверена в продолжении роста**.
+Trailing stop сам закроет позицию при развороте.
+""")
+
+
+st.markdown("---")
 st.markdown("### 📜 История ордеров")
 
 log = load_paper_trading_log()

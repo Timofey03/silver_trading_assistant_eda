@@ -1,14 +1,16 @@
 {
   "ok": true,
   "date": "2026-05-12",
-  "ts_utc": "2026-05-15T11:40:14.766911+00:00",
+  "ts_utc": "2026-05-15T11:56:27.625394+00:00",
   "signal": "HOLD",
   "p_up": 0.7093575908404887,
   "p_up_trend_5d": 0.731,
   "p_up_trend_10d": 0.7377,
   "p_up_trend_20d": 0.705,
   "above_threshold": true,
+  "below_exit": false,
   "threshold": 0.55,
+  "exit_threshold": 0.45,
   "cooldown_days": 15,
   "cooldown_remaining": 3,
   "regime": "uptrend_medium",
@@ -17,5 +19,9 @@
   "predictions_window": [
     "2026-04-01",
     "2026-05-12"
-  ]
+  ],
+  "exit_recommendation": {
+    "action": "HOLD_POSITION",
+    "reason": "p_up=0.709 >= exit_threshold=0.45"
+  }
 }

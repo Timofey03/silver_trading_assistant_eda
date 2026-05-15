@@ -186,17 +186,32 @@ def emit_today_signal(predictions: pd.DataFrame, policy: dict) -> dict:
     cooldown_remaining = max(0, cooldown - days_since_buy) if days_since_buy is not None else 0
 
     p_today = float(today["p_up_prod"])
+
+    # SELL-сигнал: если p_up упал ниже exit-порога (0.45 по умолчанию)
+    exit_threshold = float(policy.get("exit_threshold", 0.45))
+    sell_recommended = p_today < exit_threshold
+
+    # Определяем тип сигнала
+    if p_today >= threshold and cooldown_remaining == 0:
+        primary_signal = "BUY"
+    elif sell_recommended:
+        primary_signal = "SELL"
+    else:
+        primary_signal = "HOLD"
+
     return {
         "ok":                True,
         "date":              today_date.strftime("%Y-%m-%d"),
         "ts_utc":            datetime.now(timezone.utc).isoformat(),
-        "signal":            str(today["signal_prod"]),
+        "signal":            primary_signal,
         "p_up":              p_today,
         "p_up_trend_5d":     round(trend_5, 4),
         "p_up_trend_10d":    round(trend_10, 4),
         "p_up_trend_20d":    round(trend_20, 4),
         "above_threshold":   p_today >= threshold,
+        "below_exit":        sell_recommended,
         "threshold":         threshold,
+        "exit_threshold":    exit_threshold,
         "cooldown_days":     cooldown,
         "cooldown_remaining": cooldown_remaining,
         "regime":            str(today.get("regime", "unknown")),
@@ -206,6 +221,11 @@ def emit_today_signal(predictions: pd.DataFrame, policy: dict) -> dict:
             predictions.index[0].strftime("%Y-%m-%d"),
             predictions.index[-1].strftime("%Y-%m-%d"),
         ],
+        "exit_recommendation": {
+            "action": "SELL" if sell_recommended else "HOLD_POSITION",
+            "reason": (f"p_up={p_today:.3f} < exit_threshold={exit_threshold}" if sell_recommended
+                       else f"p_up={p_today:.3f} >= exit_threshold={exit_threshold}"),
+        },
     }
 
 
