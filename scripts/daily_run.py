@@ -372,12 +372,26 @@ def build_trading_report(do_paper_trade: bool = True) -> None:
     elif action["signal"] not in ("BUY", "SHORT"):
         paper["skipped_reason"] = f"signal={action['signal']} — paper trade не нужен"
     else:
+        # Читаем пользовательский конфиг из калькулятора (если есть)
+        user_cfg_path = REPO_ROOT / "baseline_outputs_prod" / "user_trading_config.json"
+        live_args = [sys.executable, "silver_paper_tinkoff.py", "--live",
+                     "--ticker", action["ticker"]]
+        if user_cfg_path.exists():
+            try:
+                user_cfg = json.loads(user_cfg_path.read_text(encoding="utf-8"))
+                lots = int(user_cfg.get("lots_target", 0))
+                if lots > 0:
+                    # Передаём кастомный размер из калькулятора
+                    live_args += ["--futures-max-lots", str(lots)]
+                    paper["user_config_applied"] = {
+                        "lots_target": lots,
+                        "risk_pct":    user_cfg.get("risk_pct_chosen"),
+                    }
+            except Exception as e:
+                paper["user_config_error"] = str(e)
+
         try:
-            rc, out = _run(
-                [sys.executable, "silver_paper_tinkoff.py", "--live",
-                 "--ticker", action["ticker"]],
-                check=False, timeout=120,
-            )
+            rc, out = _run(live_args, check=False, timeout=120)
             paper["executed"] = (rc == 0)
             paper["raw_output"] = out[-2000:]
         except Exception as e:

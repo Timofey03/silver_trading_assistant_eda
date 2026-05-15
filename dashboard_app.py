@@ -238,101 +238,13 @@ pnl = load_pnl_summary()
 dsr = load_dsr_psr()
 
 # =============================================================================
-# 💡 Калькулятор размера позиции (интегрирован в Главную)
+# Подсказка про калькулятор
 # =============================================================================
 
 st.markdown("---")
-st.markdown("### 💡 На какую сумму покупать?")
-st.caption("Risk-based калькулятор: вы выбираете риск % счёта на сделку — "
-            "получаете точный размер позиции")
-
-from app.sizing import SizingInputs, calculate_position_size, explain_sizing, INSTRUMENTS
-
-calc_col1, calc_col2 = st.columns(2)
-
-with calc_col1:
-    st.markdown("**Ваш капитал и риск**")
-    default_acc = tinkoff.get("cash", {}).get("value", 1_000_000) if tinkoff.get("ok") else 1_000_000
-    calc_account = st.number_input(
-        "Размер счёта (RUB)", value=int(default_acc),
-        min_value=10_000, step=10_000, key="calc_acc",
-        help="Текущая стоимость вашего счёта (cash + позиции)",
-    )
-    calc_risk_pct = st.slider(
-        "Риск на сделку (%)", 0.5, 5.0, 1.5, 0.1, key="calc_risk",
-        help="% капитала которые готовы потерять если сработает stop. "
-             "Профи: 0.5-2%. Розница: до 5%.",
-    )
-    calc_stop_pct = st.slider(
-        "Стоп-дистанция (%)", 2.0, 15.0, 8.0, 0.5, key="calc_stop",
-        help="Optimal mode использует trailing stop 8%",
-    ) / 100.0
-
-with calc_col2:
-    st.markdown("**Инструмент**")
-    calc_instr_name = st.selectbox(
-        "Что покупаем", list(INSTRUMENTS.keys()), index=1, key="calc_instr",
-    )
-    calc_instrument = INSTRUMENTS[calc_instr_name]
-
-    if calc_instrument.currency == "USD":
-        calc_price = st.number_input(
-            f"Цена {calc_instr_name} (USD)", value=85.0,
-            min_value=0.01, step=0.5, key="calc_price",
-        )
-        calc_usd = st.number_input("Курс USD/RUB", value=80.0, step=0.5, key="calc_usd")
-    else:
-        default_price = 200.0 if calc_instr_name == "SLVRUBF" else 14000.0
-        calc_price = st.number_input(
-            f"Цена {calc_instr_name} (RUB)", value=default_price,
-            min_value=0.01, step=1.0, key="calc_price",
-        )
-        calc_usd = 80.0
-
-    calc_p_up = sig.get("p_up", 0.5) if sig.get("p_up") is not None else 0.5
-    st.metric("Текущая p_up модели", f"{calc_p_up:.0%}",
-              help="Используется для Kelly tilt — масштаб позиции по уверенности")
-
-# Расчёт
-sizing_result = calculate_position_size(SizingInputs(
-    account_value_rub=calc_account,
-    risk_per_trade_pct=calc_risk_pct,
-    stop_distance_pct=calc_stop_pct,
-    instrument=calc_instrument,
-    current_price=calc_price,
-    usd_rub_rate=calc_usd,
-    p_up=calc_p_up,
-    confidence_tilt=True,
-))
-
-if sizing_result.lots > 0:
-    st.success(explain_sizing(sizing_result, SizingInputs(
-        account_value_rub=calc_account,
-        risk_per_trade_pct=calc_risk_pct,
-        stop_distance_pct=calc_stop_pct,
-        instrument=calc_instrument,
-        current_price=calc_price,
-        usd_rub_rate=calc_usd,
-        p_up=calc_p_up,
-        confidence_tilt=True,
-    )))
-else:
-    st.error(f"❌ {sizing_result.reason}")
-
-with st.expander("📚 Принципы position sizing"):
-    st.markdown("""
-**Главное правило**: размер позиции выбирается **исходя из риска**, а не из «хочу больше прибыли».
-
-**Пример**: у вас 1М ₽ счёт, риск 1.5%, стоп 8% (optimal mode).
-- Максимальный убыток = 15,000 ₽ (1.5% × 1М)
-- Stop loss на лот SLVRUBF ≈ 20,000 × 0.08 = 1,600 ₽
-- → размер позиции = 15,000 / 1,600 = **9 лотов**
-
-**Kelly tilt**: при высокой уверенности (p_up=0.7+) размер ×1.4, при p_up=0.5 — ×0.5.
-
-**Почему 1-3% риска**: 10 убыточных сделок подряд при 5% риска = -40% drawdown.
-При 1.5% = только -14%, восстановимо.
-""")
+st.info("💡 **Хотите рассчитать на какую сумму вкладываться?** "
+        "Откройте страницу **🧮 Калькулятор** в левом меню — там пошаговый расчёт "
+        "с понятным объяснением сценариев.")
 
 
 # =============================================================================

@@ -335,6 +335,7 @@ def cmd_replay(
     ticker: str,
     since: Optional[str] = None,
     until: Optional[str] = None,
+    futures_max_lots: int = 2,
     initial_rub: float = 100000.0,
     base_size_rub: float = 5000.0,
     max_size_rub: float = 20000.0,
@@ -419,7 +420,7 @@ def cmd_replay(
         direction, lots = _signal_to_direction_and_qty(
             signal, p_signal, price, free_rub,
             base_size_rub=base_size_rub, max_size_rub=max_size_rub, lot=lot,
-            instrument_type=inst_type, futures_max_lots=2,
+            instrument_type=inst_type, futures_max_lots=futures_max_lots,
         )
 
         log_entry = {
@@ -470,7 +471,8 @@ def cmd_replay(
     print(f"\n  Лог записан: {PAPER_LOG}")
 
 
-def cmd_live(ticker: str, base_size_rub: float = 5000.0, max_size_rub: float = 20000.0) -> None:
+def cmd_live(ticker: str, base_size_rub: float = 5000.0, max_size_rub: float = 20000.0,
+              futures_max_lots: int = 2) -> None:
     """
     Live режим: читает ПОСЛЕДНЕЕ решение v23 на сегодня и исполняет в sandbox.
     Запускать раз в день после генерации сигнала (cron / scheduled task).
@@ -505,7 +507,8 @@ def cmd_live(ticker: str, base_size_rub: float = 5000.0, max_size_rub: float = 2
 
     print(f"  Сигнал на {today}: {signal} (p_up={rec.get('p_up')}, p_short={rec.get('p_short')})")
     cmd_replay(ticker, since=today, until=today,
-               base_size_rub=base_size_rub, max_size_rub=max_size_rub)
+               base_size_rub=base_size_rub, max_size_rub=max_size_rub,
+               futures_max_lots=futures_max_lots)
 
 
 # ===========================================================================
@@ -528,6 +531,8 @@ def main() -> None:
     ap.add_argument("--initial-rub", type=float, default=100000.0)
     ap.add_argument("--base-size", type=float, default=5000.0)
     ap.add_argument("--max-size", type=float, default=20000.0)
+    ap.add_argument("--futures-max-lots", type=int, default=2,
+                    help="Макс. кол-во лотов фьючерса на одну сделку (для SLVRUBF и т.п.)")
     ap.add_argument("--dry-run", action="store_true",
                     help="Не выполнять ордера, только логировать")
     args = ap.parse_args()
@@ -541,9 +546,11 @@ def main() -> None:
     elif args.replay:
         cmd_replay(args.ticker, since=args.since, until=args.until,
                    base_size_rub=args.base_size, max_size_rub=args.max_size,
+                   futures_max_lots=args.futures_max_lots,
                    dry_run=args.dry_run)
     elif args.live:
-        cmd_live(args.ticker, base_size_rub=args.base_size, max_size_rub=args.max_size)
+        cmd_live(args.ticker, base_size_rub=args.base_size, max_size_rub=args.max_size,
+                  futures_max_lots=args.futures_max_lots)
     else:
         ap.print_help()
 
