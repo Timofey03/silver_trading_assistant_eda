@@ -1,0 +1,9 @@
+{
+  "date": "2026-05-15",
+  "ticker": "SLVRUBF",
+  "signal": "BUY",
+  "p": 0.8070894018311171,
+  "price": 84.91200256347656,
+  "rationale": "p_up=0.807, trend5d=0.7924, режим=uptrend_medium, cooldown ещё 0d",
+  "paper_traded": true
+}
