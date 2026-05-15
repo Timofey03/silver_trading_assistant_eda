@@ -1,0 +1,23 @@
+{
+  "date": "2026-05-15",
+  "time_utc": "2026-05-15T17:20:02.176003+00:00",
+  "ticker": "SLV",
+  "signal": "HOLD",
+  "p_up": 0.7093575908404887,
+  "p_short": null,
+  "rationale": "p_up=0.709, trend5d=0.731, режим=uptrend_medium, cooldown ещё 2d",
+  "current_price": 85.12999725341797,
+  "recommendation": "⚪ ДЕРЖАТЬ — модель уверена (71% > 55%), но cooldown ещё 2d. После cooldown ожидается BUY-сигнал.",
+  "source": "production_inference",
+  "actual_signal_date": "2026-05-12",
+  "regime": "uptrend_medium",
+  "p_up_trend_5d": 0.731,
+  "p_up_trend_10d": 0.7377,
+  "above_threshold": true,
+  "cooldown_remaining": 2,
+  "paper_trade": {
+    "executed": false,
+    "skipped_reason": "--no-paper-trade"
+  },
+  "portfolio_status": "=== Sandbox портфель ===\n  Account ID: df3d7a77-3e75-4274-8467-fe08085256ff\n  Total:      1,961,233.02 RUB\n  Shares:     0.00 RUB\n  Bonds:      0.00 RUB\n  ETF:        0.00 RUB\n  Currencies: 1,099,441.02 RUB\n  Futures:    861,792.00 RUB\n  Expected yield: {'units': '78', 'nano': 293900000}\n  Positions: 2\n    - currency figi=RUB000UTSTOM qty=1099441 avg=1\n    - futures figi=FSLVRUB00000 qty=48 avg=199\n"
+}

@@ -293,13 +293,20 @@ with col3:
     st.caption("Полный цикл: retrain + paper trade")
     if st.button("🚀 Run daily"):
         import subprocess
+        import sys as _sys
         with st.spinner("Запуск daily_run.py..."):
+            # Используем sys.executable — гарантирует тот же Python venv, что Streamlit
             r = subprocess.run(
-                ["python", "scripts/daily_run.py", "--skip-training"],
-                capture_output=True, text=True, timeout=180,
+                [_sys.executable, "scripts/daily_run.py", "--skip-training"],
+                capture_output=True, text=True, timeout=300,
+                cwd=str(ROOT),
             )
             if r.returncode == 0:
                 st.success("✅ Готово!")
+                if r.stdout:
+                    with st.expander("📋 Output"):
+                        st.code(r.stdout[-2000:])
             else:
-                st.error(f"Ошибка: {r.stderr[-500:]}")
+                st.error(f"Ошибка (rc={r.returncode}):")
+                st.code((r.stderr or r.stdout or "")[-1500:])
         st.cache_data.clear()
