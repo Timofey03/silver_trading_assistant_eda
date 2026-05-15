@@ -1,6 +1,6 @@
 {
   "date": "2026-05-15",
-  "time_utc": "2026-05-15T17:28:10.795821+00:00",
+  "time_utc": "2026-05-15T17:40:50.400128+00:00",
   "ticker": "SLV",
   "signal": "HOLD",
   "p_up": 0.7093575908404887,
@@ -19,5 +19,23 @@
     "executed": false,
     "skipped_reason": "signal=HOLD — paper trade не нужен"
   },
-  "portfolio_status": "=== Sandbox портфель ===\n  Account ID: df3d7a77-3e75-4274-8467-fe08085256ff\n  Total:      1,969,393.02 RUB\n  Shares:     0.00 RUB\n  Bonds:      0.00 RUB\n  ETF:        0.00 RUB\n  Currencies: 1,099,441.02 RUB\n  Futures:    869,952.00 RUB\n  Expected yield: {'units': '79', 'nano': 35700000}\n  Positions: 2\n    - currency figi=RUB000UTSTOM qty=1099441 avg=1\n    - futures figi=FSLVRUB00000 qty=48 avg=199\n"
+  "portfolio_status": "=== Sandbox портфель ===\n  Account ID: df3d7a77-3e75-4274-8467-fe08085256ff\n  Total:      1,970,641.02 RUB\n  Shares:     0.00 RUB\n  Bonds:      0.00 RUB\n  ETF:        0.00 RUB\n  Currencies: 1,099,441.02 RUB\n  Futures:    871,200.00 RUB\n  Expected yield: {'units': '79', 'nano': 149200000}\n  Positions: 2\n    - currency figi=RUB000UTSTOM qty=1099441 avg=1\n    - futures figi=FSLVRUB00000 qty=48 avg=199\n",
+  "gold": {
+    "date": "2026-05-15",
+    "ticker": "GLDRUBF",
+    "signal": "HOLD",
+    "p_up": 0.5066850545395837,
+    "current_price": 4678.10009765625,
+    "source": "production_inference",
+    "actual_signal_date": "2026-05-14",
+    "regime": "downtrend_medium",
+    "p_up_trend_5d": 0.5862,
+    "above_threshold": true,
+    "cooldown_remaining": 3,
+    "rationale": "GOLD p_up=0.507, режим=downtrend_medium, cooldown ещё 3d",
+    "paper_trade": {
+      "executed": false,
+      "skipped_reason": "signal=HOLD — paper trade не нужен"
+    }
+  }
 }
