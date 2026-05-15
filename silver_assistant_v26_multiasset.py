@@ -143,7 +143,7 @@ def build_gold_features(df: pd.DataFrame) -> pd.DataFrame:
 # =============================================================================
 
 def add_gold_labels(df: pd.DataFrame, horizon: int = 15,
-                    barrier_up: float = 0.02, barrier_dn: float = 0.02) -> pd.DataFrame:
+                    barrier_up: float = 0.01, barrier_dn: float = 0.01) -> pd.DataFrame:
     """
     Triple-barrier labels для gold:
       UP    = цена выросла >+2% в течение horizon дней

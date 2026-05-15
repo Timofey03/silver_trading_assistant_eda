@@ -1,0 +1,11 @@
+{
+  "savings_rub": 1000000.0,
+  "allocation_pct": 30,
+  "allocation_rub": 300000.0,
+  "risk_level": "large",
+  "risk_pct_chosen": 5.0,
+  "max_loss_per_trade_rub": 24000.0,
+  "lots_target": 15,
+  "position_rub": 300000.0,
+  "applied_at": "2026-05-15T17:05:03.213522+00:00"
+}

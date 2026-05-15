@@ -238,6 +238,47 @@ pnl = load_pnl_summary()
 dsr = load_dsr_psr()
 
 # =============================================================================
+# Multi-asset portfolio results
+# =============================================================================
+
+import json as _json
+portfolio_path = ROOT / "baseline_outputs_v27" / "portfolio_summary.json"
+if portfolio_path.exists():
+    portfolio_data = _json.loads(portfolio_path.read_text(encoding="utf-8"))
+    fwd = portfolio_data.get("forward", {})
+
+    st.markdown("---")
+    st.markdown("### 🪙 Multi-asset результат (Silver + Gold, 50/50)")
+    st.caption("Forward 2025+ backtest. Диверсификация снижает риск.")
+
+    pcol1, pcol2, pcol3, pcol4 = st.columns(4)
+    with pcol1:
+        st.metric("Total return", f"{fwd.get('total_return', 0)*100:+.1f}%",
+                  help="Суммарная доходность портфеля")
+    with pcol2:
+        st.metric("CAGR", f"{fwd.get('cagr', 0)*100:+.1f}%",
+                  help="Среднегодовая доходность")
+    with pcol3:
+        st.metric("Max Drawdown", f"{fwd.get('max_drawdown', 0)*100:.1f}%",
+                  help="Глубина худшей просадки")
+    with pcol4:
+        st.metric("Sharpe", f"{fwd.get('sharpe_ann', 0):.2f}",
+                  help="Доходность / риск")
+
+    pc1, pc2 = st.columns(2)
+    with pc1:
+        sv_final = fwd.get('silver_final', 0.5)
+        st.metric("Silver bucket (start 0.5)", f"{sv_final:.3f}",
+                  delta=f"{(sv_final/0.5 - 1)*100:+.1f}%")
+    with pc2:
+        gd_final = fwd.get('gold_final', 0.5)
+        st.metric("Gold bucket (start 0.5)", f"{gd_final:.3f}",
+                  delta=f"{(gd_final/0.5 - 1)*100:+.1f}%")
+
+    st.caption(f"💎 Silver bucket вырос с 0.5 до {sv_final:.3f} (+{(sv_final/0.5 - 1)*100:.1f}%) · "
+                f"🥇 Gold bucket вырос с 0.5 до {gd_final:.3f} (+{(gd_final/0.5 - 1)*100:.1f}%)")
+
+# =============================================================================
 # Подсказка про калькулятор
 # =============================================================================
 

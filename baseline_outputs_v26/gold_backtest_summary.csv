@@ -1,4 +1,4 @@
 split,n_trades,total_return,win_rate,max_drawdown,sharpe_ann
 valid,0,0.0,,,
-test,1,0.0541,1.0,,
-forward,2,0.1776,1.0,,
+test,4,0.0778,0.5,-0.0432,0.803
+forward,10,0.2521,0.7,-0.0672,1.381

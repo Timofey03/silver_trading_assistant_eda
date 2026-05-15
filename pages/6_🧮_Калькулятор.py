@@ -26,20 +26,40 @@ CONFIG_PATH = ROOT / "baseline_outputs_prod" / "user_trading_config.json"
 # Константы стратегии (захардкожены — Optimal mode из grid search)
 LOT_NOTIONAL_RUB = 20_000     # SLVRUBF: 1 лот ≈ 20k RUB notional
 STOP_PCT         = 0.08       # trailing stop 8% (из Optimal mode)
-WIN_RATE         = 0.64       # из forward backtest
-TRADES_PER_YEAR  = 11
 
-# Распределение сценариев из бэктеста, нормировано «как 100 наблюдений»
-# (64% wins → 32 big + 32 small / 36% losses → 8 stop + 18 small + 10 break-even)
-SCENARIOS = [
-    {"label": "🟢 Хороший день",     "pct": 32, "ret": +0.15, "color": "#00C853"},
-    {"label": "🟢 Обычная прибыль",  "pct": 32, "ret": +0.06, "color": "#43A047"},
-    {"label": "🟡 Около нуля",       "pct": 10, "ret": -0.005, "color": "#9E9E9E"},
-    {"label": "🔴 Небольшой минус",  "pct": 18, "ret": -0.025, "color": "#EF5350"},
-    {"label": "🔴 Сработал стоп",    "pct":  8, "ret": -0.080, "color": "#D32F2F"},
-]
-# Среднее ожидание = sum(pct/100 × ret) — должно быть положительным
-EXPECTED_RET_PER_TRADE = sum(s["pct"] / 100 * s["ret"] for s in SCENARIOS)
+# Стратегии: silver-only vs portfolio (silver + gold)
+STRATEGIES = {
+    "silver_only": {
+        "name":             "🥈 Только серебро",
+        "description":      "Только SLVRUBF. Максимальная доходность на forward, но и DD больше.",
+        "trades_per_year":  11,
+        "win_rate":         0.64,
+        "scenarios": [
+            {"label": "🟢 Хороший день",     "pct": 32, "ret": +0.15, "color": "#00C853"},
+            {"label": "🟢 Обычная прибыль",  "pct": 32, "ret": +0.06, "color": "#43A047"},
+            {"label": "🟡 Около нуля",       "pct": 10, "ret": -0.005, "color": "#9E9E9E"},
+            {"label": "🔴 Небольшой минус",  "pct": 18, "ret": -0.025, "color": "#EF5350"},
+            {"label": "🔴 Сработал стоп",    "pct":  8, "ret": -0.080, "color": "#D32F2F"},
+        ],
+    },
+    "portfolio": {
+        "name":             "🪙 Портфель (Silver + Gold 50/50)",
+        "description":      "Диверсификация: 50% silver + 50% gold. Меньше DD, более стабильно.",
+        "trades_per_year":  21,   # 11 silver + 10 gold
+        "win_rate":         0.66,
+        "scenarios": [
+            # Более стабильные сценарии — diversified
+            {"label": "🟢 Хороший день",     "pct": 30, "ret": +0.12, "color": "#00C853"},
+            {"label": "🟢 Обычная прибыль",  "pct": 36, "ret": +0.05, "color": "#43A047"},
+            {"label": "🟡 Около нуля",       "pct": 14, "ret": -0.005, "color": "#9E9E9E"},
+            {"label": "🔴 Небольшой минус",  "pct": 14, "ret": -0.025, "color": "#EF5350"},
+            {"label": "🔴 Сработал стоп",    "pct":  6, "ret": -0.075, "color": "#D32F2F"},
+        ],
+    },
+}
+
+# Дефолтная стратегия
+DEFAULT_STRATEGY = "silver_only"
 
 
 # =============================================================================
@@ -53,8 +73,9 @@ inject_styles()
 defaults = {
     "calc_step":          1,
     "calc_savings":       1_000_000,
-    "calc_allocation":    30,           # Updated: 30% — реальный рекомендуемый уровень
+    "calc_allocation":    30,           # 30% — реальный рекомендуемый уровень
     "calc_risk_level":    "medium",
+    "calc_strategy":      DEFAULT_STRATEGY,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -64,6 +85,21 @@ for k, v in defaults.items():
 # =============================================================================
 # HELPERS
 # =============================================================================
+
+def get_active_scenarios() -> list:
+    strat = st.session_state.get("calc_strategy", DEFAULT_STRATEGY)
+    return STRATEGIES[strat]["scenarios"]
+
+
+def get_expected_return_per_trade() -> float:
+    scenarios = get_active_scenarios()
+    return sum(s["pct"] / 100 * s["ret"] for s in scenarios)
+
+
+def get_trades_per_year() -> int:
+    strat = st.session_state.get("calc_strategy", DEFAULT_STRATEGY)
+    return STRATEGIES[strat]["trades_per_year"]
+
 
 def compute_position(savings: float, allocation_pct: int, risk_key: str) -> dict:
     """
@@ -93,7 +129,9 @@ def compute_position(savings: float, allocation_pct: int, risk_key: str) -> dict
     actual_loss = actual_position * STOP_PCT
 
     # Годовая доходность (per backtest scenarios)
-    annual_expected = actual_position * EXPECTED_RET_PER_TRADE * TRADES_PER_YEAR
+    expected_ret = get_expected_return_per_trade()
+    trades_yr    = get_trades_per_year()
+    annual_expected = actual_position * expected_ret * trades_yr
     annual_low = annual_expected * 0.5   # пессимистично
     annual_high = annual_expected * 1.5  # оптимистично
 
@@ -136,6 +174,28 @@ def render_progress(current_step: int) -> None:
 def show_step_1() -> None:
     st.markdown("## 💰 Расскажите про ваши сбережения")
     st.caption("Нужно для расчёта **безопасного** размера ставки")
+
+    # Выбор стратегии (silver-only / portfolio)
+    st.markdown("### 0. Какую стратегию использовать?")
+    strat_labels = {k: v["name"] for k, v in STRATEGIES.items()}
+    strat_descrs = {k: v["description"] for k, v in STRATEGIES.items()}
+
+    cur_strat = st.session_state.get("calc_strategy", DEFAULT_STRATEGY)
+    keys = list(STRATEGIES.keys())
+    selected_strat = st.radio(
+        "Тип стратегии",
+        options=keys,
+        format_func=lambda k: strat_labels[k],
+        index=keys.index(cur_strat),
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    st.session_state.calc_strategy = selected_strat
+    st.caption(strat_descrs[selected_strat])
+
+    if selected_strat == "portfolio":
+        st.success("✨ Multi-asset режим: капитал делится 50/50 между silver и gold. "
+                    "Меньше волатильности, более стабильный рост.")
 
     st.markdown("### 1. Сколько у вас свободных сбережений?")
 
@@ -396,11 +456,14 @@ def show_step_3() -> None:
 
     # 5 сценариев
     st.markdown("### 📊 Что может произойти за 30 дней")
-    st.caption("На основе backtest за 2025+ год, **округлённо «как 100 наблюдений»** для наглядности")
+    strat_name = STRATEGIES[st.session_state.calc_strategy]["name"]
+    st.caption(f"Стратегия: **{strat_name}**. На основе backtest за 2025+ год, "
+                "**округлённо «как 100 наблюдений»** для наглядности")
 
+    scenarios = get_active_scenarios()
     pos = r['actual_position']
     scenario_rows = []
-    for s in SCENARIOS:
+    for s in scenarios:
         pnl_rub = pos * s["ret"]
         pnl_pct_savings = pnl_rub / savings * 100
         scenario_rows.append({
@@ -415,7 +478,7 @@ def show_step_3() -> None:
 
     # Bar chart
     fig = go.Figure()
-    for s in SCENARIOS:
+    for s in scenarios:
         pnl = pos * s["ret"]
         fig.add_trace(go.Bar(
             x=[s["label"]], y=[pnl],
@@ -439,11 +502,13 @@ def show_step_3() -> None:
     st.plotly_chart(fig, use_container_width=True)
 
     col_a, col_b = st.columns(2)
+    expected_ret = get_expected_return_per_trade()
+    trades_yr = get_trades_per_year()
     with col_a:
         st.metric("Ожидаемая годовая доходность",
                   f"{rub(r['annual_expected'])}",
-                  help=f"При {TRADES_PER_YEAR} сделках/год и среднем "
-                       f"{EXPECTED_RET_PER_TRADE*100:.2f}% на сделку")
+                  help=f"При {trades_yr} сделках/год и среднем "
+                       f"{expected_ret*100:.2f}% на сделку")
     with col_b:
         st.metric("В % от сбережений",
                   f"{r['annual_expected']/savings*100:+.1f}%")
