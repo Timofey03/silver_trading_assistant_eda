@@ -74,18 +74,18 @@ class SignalMode:
 # фильтр: консистентность валидации (valid >= -2%, test >= 0%, fwd >= 6 trades)
 # Результат на forward split: +64.5%, Sharpe 1.69, win 64%, 11 трейдов
 OPTIMAL_PARAMS = SignalMode(
-    name="Optimal",
-    description="Grid-search оптимум — самая доходная робастная конфигурация. "
-                "+64.5% forward (3x vs прежний Conservative). "
-                "Take profit и aggressive trail тестировались — оба отрезают winners.",
-    p_up_entry=0.49,
-    p_up_exit=0.43,
-    cooldown=15,
-    trail_pct=0.08,
+    name="OptimalV2 (Consistency-aware)",
+    description="Walk-forward grid search оптимум на 8 годах (2018-2025). "
+                "6/8 положительных лет, mean +3.9%/год, worst -14.1%. "
+                "Заменил OptimalV1 который был оверфит к 2025 bull market.",
+    p_up_entry=0.48,         # vs OptimalV1=0.49 — почти то же
+    p_up_exit=0.35,          # vs 0.43 — НАМНОГО ниже, держим дольше
+    cooldown=25,             # vs 15 — реже сделки
+    trail_pct=0.12,          # vs 0.08 — шире стопы (не дёргаемся на шуме)
     max_hold=30,
-    expected_trades_per_year=11,
-    take_profit_pct=0.0,             # ОТКЛЮЧЕНО — снижает доходность в trend-following
-    aggressive_trail_after=0.0,      # ОТКЛЮЧЕНО — режет большие движения
+    expected_trades_per_year=5,   # реалистично: 5-9 в среднем
+    take_profit_pct=0.0,
+    aggressive_trail_after=0.0,
 )
 
 # Сохраняем PRESETS для обратной совместимости grid_search скрипта

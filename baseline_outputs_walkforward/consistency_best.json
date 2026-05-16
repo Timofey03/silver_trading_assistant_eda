@@ -1,0 +1,80 @@
+{
+  "p_up_entry": 0.48,
+  "p_up_exit": 0.35,
+  "cooldown": 25,
+  "trail_pct": 0.12,
+  "max_hold": 30,
+  "score": 0.2476,
+  "n_positive": 6,
+  "median_return": 0.0434,
+  "mean_return": 0.0388,
+  "worst_year": -0.1412,
+  "best_year": 0.1643,
+  "no_trade_years": 0,
+  "year_results": [
+    {
+      "n_trades": 1,
+      "total_return": -0.024667140598388593,
+      "win_rate": 0.0,
+      "max_dd": -0.024667140598388593,
+      "sharpe": 0.0,
+      "year": 2018
+    },
+    {
+      "n_trades": 6,
+      "total_return": 0.010952134648758438,
+      "win_rate": 0.5,
+      "max_dd": -0.028845895010750855,
+      "sharpe": 0.21259632774393558,
+      "year": 2019
+    },
+    {
+      "n_trades": 6,
+      "total_return": 0.16432946164860307,
+      "win_rate": 0.6666666666666666,
+      "max_dd": -0.03447306357594737,
+      "sharpe": 1.248772800630184,
+      "year": 2020
+    },
+    {
+      "n_trades": 6,
+      "total_return": -0.1411866483948978,
+      "win_rate": 0.0,
+      "max_dd": -0.1411866483948978,
+      "sharpe": -2.681664543097446,
+      "year": 2021
+    },
+    {
+      "n_trades": 1,
+      "total_return": 0.07177915523636647,
+      "win_rate": 1.0,
+      "max_dd": 0.0,
+      "sharpe": 0.0,
+      "year": 2022
+    },
+    {
+      "n_trades": 7,
+      "total_return": 0.01498916454713961,
+      "win_rate": 0.2857142857142857,
+      "max_dd": -0.08675775852355616,
+      "sharpe": 0.16243239316138636,
+      "year": 2023
+    },
+    {
+      "n_trades": 9,
+      "total_return": 0.07904270206472375,
+      "win_rate": 0.4444444444444444,
+      "max_dd": -0.07130079361247554,
+      "sharpe": 0.5735110200478396,
+      "year": 2024
+    },
+    {
+      "n_trades": 2,
+      "total_return": 0.1349576329115163,
+      "win_rate": 1.0,
+      "max_dd": 0.0,
+      "sharpe": 0.0,
+      "year": 2025
+    }
+  ]
+}

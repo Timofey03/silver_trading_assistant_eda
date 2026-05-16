@@ -1,8 +1,8 @@
 {
   "ok": true,
   "date": "2026-05-15",
-  "ts_utc": "2026-05-16T12:55:46.762400+00:00",
-  "signal": "BUY",
+  "ts_utc": "2026-05-16T21:22:01.256851+00:00",
+  "signal": "HOLD",
   "p_up": 0.6576023987787182,
   "p_up_trend_5d": 0.697,
   "p_up_trend_10d": 0.7473,
@@ -10,9 +10,9 @@
   "above_threshold": true,
   "below_exit": false,
   "threshold": 0.55,
-  "exit_threshold": 0.43,
+  "exit_threshold": 0.35,
   "cooldown_days": 5,
-  "cooldown_remaining": 0,
+  "cooldown_remaining": 2,
   "regime": "downtrend_high",
   "silver_close": 77.16100311279297,
   "n_predictions": 30,
@@ -22,6 +22,6 @@
   ],
   "exit_recommendation": {
     "action": "HOLD_POSITION",
-    "reason": "p_up=0.658 >= exit_threshold=0.43"
+    "reason": "p_up=0.658 >= exit_threshold=0.35"
   }
 }

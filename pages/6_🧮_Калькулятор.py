@@ -28,32 +28,36 @@ LOT_NOTIONAL_RUB = 20_000     # SLVRUBF: 1 лот ≈ 20k RUB notional
 STOP_PCT         = 0.08       # trailing stop 8% (из Optimal mode)
 
 # Стратегии: silver-only vs portfolio (silver + gold)
+# ⚠ ВАЖНО: цифры основаны на walk-forward 8 лет (2018-2025) с OptimalV2 params,
+# а НЕ на одиночном forward 2025. Это РЕАЛИСТИЧНЫЕ expectations.
+# Walk-forward показал: mean +3.9%/год, 6/8 положительных лет, worst -14%.
 STRATEGIES = {
     "silver_only": {
-        "name":             "🥈 Только серебро",
-        "description":      "Только SLVRUBF. Максимальная доходность на forward, но и DD больше.",
-        "trades_per_year":  11,
-        "win_rate":         0.64,
+        "name":             "🥈 Только серебро (OptimalV2)",
+        "description":      "OptimalV2 consistency-aware: 6/8 положительных лет в backtest. "
+                            "Mean +3.9%/год на позиции, worst -14% (2021).",
+        "trades_per_year":  5,         # walk-forward avg
+        "win_rate":         0.45,      # walk-forward avg
         "scenarios": [
-            {"label": "🟢 Хороший день",     "pct": 32, "ret": +0.15, "color": "#00C853"},
-            {"label": "🟢 Обычная прибыль",  "pct": 32, "ret": +0.06, "color": "#43A047"},
-            {"label": "🟡 Около нуля",       "pct": 10, "ret": -0.005, "color": "#9E9E9E"},
-            {"label": "🔴 Небольшой минус",  "pct": 18, "ret": -0.025, "color": "#EF5350"},
-            {"label": "🔴 Сработал стоп",    "pct":  8, "ret": -0.080, "color": "#D32F2F"},
+            # На основе walk-forward 8 лет, нормированно к 100 наблюдениям
+            {"label": "🟢 Хороший день",     "pct": 20, "ret": +0.10, "color": "#00C853"},
+            {"label": "🟢 Обычная прибыль",  "pct": 25, "ret": +0.03, "color": "#43A047"},
+            {"label": "🟡 Около нуля",       "pct": 15, "ret":  0.0,  "color": "#9E9E9E"},
+            {"label": "🔴 Небольшой минус",  "pct": 25, "ret": -0.025, "color": "#EF5350"},
+            {"label": "🔴 Сработал стоп",    "pct": 15, "ret": -0.10, "color": "#D32F2F"},
         ],
     },
     "portfolio": {
         "name":             "🪙 Портфель (Silver + Gold 50/50)",
-        "description":      "Диверсификация: 50% silver + 50% gold. Меньше DD, более стабильно.",
-        "trades_per_year":  21,   # 11 silver + 10 gold
-        "win_rate":         0.66,
+        "description":      "Диверсификация snижает DD. Mean ~+5%/год, более стабильно.",
+        "trades_per_year":  10,   # ~5 silver + ~5 gold
+        "win_rate":         0.48,
         "scenarios": [
-            # Более стабильные сценарии — diversified
-            {"label": "🟢 Хороший день",     "pct": 30, "ret": +0.12, "color": "#00C853"},
-            {"label": "🟢 Обычная прибыль",  "pct": 36, "ret": +0.05, "color": "#43A047"},
-            {"label": "🟡 Около нуля",       "pct": 14, "ret": -0.005, "color": "#9E9E9E"},
-            {"label": "🔴 Небольшой минус",  "pct": 14, "ret": -0.025, "color": "#EF5350"},
-            {"label": "🔴 Сработал стоп",    "pct":  6, "ret": -0.075, "color": "#D32F2F"},
+            {"label": "🟢 Хороший день",     "pct": 22, "ret": +0.08, "color": "#00C853"},
+            {"label": "🟢 Обычная прибыль",  "pct": 28, "ret": +0.03, "color": "#43A047"},
+            {"label": "🟡 Около нуля",       "pct": 18, "ret":  0.0,  "color": "#9E9E9E"},
+            {"label": "🔴 Небольшой минус",  "pct": 22, "ret": -0.025, "color": "#EF5350"},
+            {"label": "🔴 Сработал стоп",    "pct": 10, "ret": -0.09, "color": "#D32F2F"},
         ],
     },
 }
@@ -680,8 +684,14 @@ st.markdown("# 🧮 Калькулятор позиции для серебра"
 
 top_signal_badge(get_current_signal())
 
-st.markdown("> Помогу понять — стоит ли вкладываться в серебро, и если да, **какой суммой**. "
-            "Простой 3-шаговый расчёт. Все технические термины спрятаны в раскрывающихся блоках.")
+st.warning(
+    "⚠ **Честное предупреждение**: цифры основаны на walk-forward бэктесте 8 лет (2018-2025). "
+    "Стратегия показала **+3.9%/год в среднем, 6 из 8 лет положительные, худший год -14%**. "
+    "Это **не «AI-помощник для заработка»**, а инструмент с умеренным edge. "
+    "Доходность вероятно ниже банковского депозита, но с возможным upside в bull-режимах."
+)
+
+st.markdown("> Простой 3-шаговый расчёт. Все технические термины спрятаны в раскрывающихся блоках.")
 
 render_progress(st.session_state.calc_step)
 st.markdown("---")

@@ -128,11 +128,12 @@ def predict_recent(
         p_up = model.p_up(X, regimes)
     last["p_up_prod"] = p_up
 
-    # ⭐ OPTIMAL MODE параметры из grid search (silver_signal_grid_search.py)
-    # forward +64.5% vs прежние +21.5% Conservative
-    threshold = 0.49           # p_up_entry
-    exit_threshold = 0.43      # p_up_exit (используется в emit_today_signal)
-    cooldown = 15              # дней между BUY-сигналами
+    # ⭐ OPTIMAL_V2 params — consistency-aware walk-forward (8 years)
+    # 6/8 положительных лет, mean +3.9%/год, worst -14.1%
+    # vs прежний v1 (overfit to 2025): 2/8 positive years, mean -4.6%/год
+    threshold = 0.48           # p_up_entry
+    exit_threshold = 0.35      # p_up_exit (раньше 0.43 — overfit)
+    cooldown = 25              # раньше 15 — слишком частые сделки
 
     # Применяем policy: BUY когда p_up >= threshold + cooldown между BUYs
     raw = last["p_up_prod"] >= threshold
@@ -183,8 +184,8 @@ def emit_today_signal(predictions: pd.DataFrame, policy: dict) -> dict:
 
     p_today = float(today["p_up_prod"])
 
-    # ⭐ OPTIMAL MODE exit threshold (из grid search)
-    exit_threshold = 0.43
+    # ⭐ OPTIMAL_V2 exit threshold (consistency-aware walk-forward)
+    exit_threshold = 0.35
     sell_recommended = p_today < exit_threshold
 
     # Определяем тип сигнала
