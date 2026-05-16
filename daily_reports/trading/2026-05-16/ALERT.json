@@ -1,0 +1,9 @@
+{
+  "date": "2026-05-16",
+  "ticker": "SLV",
+  "signal": "BUY",
+  "p": 0.6576023987787182,
+  "price": 77.16100311279297,
+  "rationale": "p_up=0.658, trend5d=0.697, режим=downtrend_high, cooldown ещё 0d",
+  "paper_traded": true
+}

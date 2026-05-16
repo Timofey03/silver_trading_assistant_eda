@@ -1,0 +1,4 @@
+split,n_trades_v25,n_sequential,v22_honest_total,v25_honest_total,improvement_pp,true_bnh,vs_bnh,cagr,max_dd,sharpe_ann,calmar
+valid,38,9,-0.0939,0.0749,0.1688,-0.0004,0.0753,0.076,-0.1569,0.382,0.485
+test,11,3,0.0764,0.0862,0.0098,0.2133,-0.127,0.1024,-0.0763,0.625,1.341
+forward,22,10,0.7972,1.1195,0.3223,1.8665,-0.747,0.7754,-0.0854,1.854,9.082

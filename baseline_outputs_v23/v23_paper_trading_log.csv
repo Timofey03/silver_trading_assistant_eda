@@ -1,0 +1,2 @@
+ts_signal,signal,ticker,figi,price,free_rub_before,direction,lots,executed,order_id,error
+2026-05-16T13:05:48.934992+00:00,BUY,SLVRUBF,FSLVRUB00000,177.98,1099441.02,ORDER_DIRECTION_BUY,1,True,bf0e0cdf-2b69-46a7-83af-3abc2306b91d,

@@ -1,0 +1,4 @@
+split,n_obs,sharpe_per_trade,skew,kurt,psr,dsr
+valid,9,0.1263,0.506,1.636,0.6445,0.4783
+test,3,,0.0,3.0,,
+forward,10,0.6708,0.744,2.939,0.9979,0.3369

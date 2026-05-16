@@ -474,41 +474,159 @@ def cmd_replay(
 def cmd_live(ticker: str, base_size_rub: float = 5000.0, max_size_rub: float = 20000.0,
               futures_max_lots: int = 2) -> None:
     """
-    Live режим: читает ПОСЛЕДНЕЕ решение v23 на сегодня и исполняет в sandbox.
-    Запускать раз в день после генерации сигнала (cron / scheduled task).
+    Live режим: читает СВЕЖИЙ production-сигнал и исполняет в sandbox.
+
+    Источник: baseline_outputs_prod/production_signal_today.json (silver)
+              или gold_signal_today.json (gold, если ticker = GLDRUBF*)
+
+    Это правильный источник: production inference запускается отдельно
+    и обновляется при каждом daily run.
     """
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    audit_path = V23_DIR / "v23_decision_audit_log.jsonl"
-    if not audit_path.exists():
-        print("ERROR: нет audit log.")
+    # Авто-определение актива по ticker
+    is_gold = "GLD" in ticker.upper() or "TGLD" in ticker.upper()
+    if is_gold:
+        signal_file = Path("baseline_outputs_prod") / "gold_signal_today.json"
+        price_field = "gold_close"
+    else:
+        signal_file = Path("baseline_outputs_prod") / "production_signal_today.json"
+        price_field = "silver_close"
+
+    if not signal_file.exists():
+        print(f"ERROR: нет {signal_file}")
+        print(f"  Сначала запустите: python {'gold_production_inference.py' if is_gold else 'silver_production_inference.py'}")
         return
 
-    today_rows = []
-    with audit_path.open("r", encoding="utf-8") as f:
-        for line in f:
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if rec.get("ts", "")[:10] == today:
-                today_rows.append(rec)
-
-    if not today_rows:
-        print(f"  Нет сигналов на {today}. Пропускаем.")
+    try:
+        prod = json.loads(signal_file.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"ERROR: не могу прочитать {signal_file}: {e}")
         return
 
-    rec = today_rows[-1]
-    signal_long  = rec.get("signal_long",  "HOLD")
-    signal_short = rec.get("signal_short", "HOLD")
-    signal = "BUY" if signal_long == "BUY" else "SHORT" if signal_short == "SHORT" else ""
-    if not signal:
-        print(f"  HOLD на {today}. Ничего не делаем.")
+    if not prod.get("ok"):
+        print(f"  Production signal не valid: {prod.get('error', 'unknown')}")
         return
 
-    print(f"  Сигнал на {today}: {signal} (p_up={rec.get('p_up')}, p_short={rec.get('p_short')})")
-    cmd_replay(ticker, since=today, until=today,
-               base_size_rub=base_size_rub, max_size_rub=max_size_rub,
-               futures_max_lots=futures_max_lots)
+    signal_data_date = prod.get("date", "unknown")
+    raw_signal = prod.get("signal", "HOLD")
+
+    # ДИНАМИЧЕСКИЙ пересчёт cooldown (data может быть на 1-3 дня старее)
+    today = datetime.now(timezone.utc).date()
+    from datetime import datetime as _dt
+    try:
+        sig_date = _dt.strptime(signal_data_date, "%Y-%m-%d").date()
+        days_passed = max(0, (today - sig_date).days)
+    except Exception:
+        days_passed = 0
+
+    trading_days_passed = int(days_passed * 5 / 7)
+    original_cooldown = int(prod.get("cooldown_remaining", 0))
+    cooldown_fresh = max(0, original_cooldown - trading_days_passed)
+
+    p_up = float(prod.get("p_up", 0.0))
+    threshold = float(prod.get("threshold", 0.49))
+    exit_threshold = float(prod.get("exit_threshold", 0.43))
+
+    # Пересчёт сигнала с учётом fresh cooldown
+    if cooldown_fresh == 0 and p_up >= threshold:
+        signal = "BUY"
+    elif p_up < exit_threshold:
+        signal = "SELL"
+    else:
+        signal = "HOLD"
+
+    # STALE-проверка: не доверяем, если данные старше 5 дней
+    if days_passed > 5:
+        print(f"  ⚠ Production signal устарел ({days_passed}d). Сначала запустите inference.")
+        print(f"     Сигнал в JSON: {raw_signal}, но данные нужны свежие.")
+        return
+
+    print(f"  Production signal (data {signal_data_date}, age {days_passed}d):")
+    print(f"    raw signal in JSON:   {raw_signal}")
+    print(f"    recomputed signal:    {signal}")
+    print(f"    p_up:                 {p_up:.4f} (threshold {threshold})")
+    print(f"    cooldown remaining:   {cooldown_fresh}d")
+
+    if signal not in ("BUY", "SHORT", "SELL"):
+        print(f"  {signal} → ничего не делаем.")
+        return
+
+    # Конвертация сигнала в Tinkoff direction:
+    #   BUY        → ORDER_DIRECTION_BUY  (открыть LONG)
+    #   SHORT/SELL → ORDER_DIRECTION_SELL (закрыть LONG / открыть SHORT)
+    print(f"\n  → Исполняем {signal} в Tinkoff sandbox ({ticker})...")
+
+    today_str = today.strftime("%Y-%m-%d")
+    today_iso = _dt.now(timezone.utc).isoformat()
+    import csv
+    client = TinkoffClient(_get_token_or_exit())
+    account_id = _load_account_id(client)
+
+    items = client.find_instrument(ticker)
+    candidates = [it for it in items if it.get("ticker", "").upper() == ticker.upper()
+                  and it.get("apiTradeAvailableFlag", True)]
+    if not candidates:
+        candidates = items
+    if not candidates:
+        print(f"ERROR: инструмент {ticker} не найден.")
+        return
+    inst = candidates[0]
+    figi = inst["figi"]
+    lot = int(inst.get("lot", 1))
+    inst_type = inst.get("instrumentType", "etf")
+    print(f"  Инструмент: {inst.get('ticker')} ({inst.get('name', '')}) figi={figi}, type={inst_type}")
+
+    try:
+        price = client.get_last_price(figi) or 0.0
+    except Exception as e:
+        print(f"  WARN price fetch failed: {e}")
+        price = 0.0
+
+    portfolio = client.sandbox_portfolio(account_id)
+    free_rub = 0.0
+    for pos in portfolio.get("positions", []):
+        if pos.get("instrumentType") == "currency" and pos.get("figi", "").startswith("RUB"):
+            q = pos.get("quantity", {})
+            free_rub += int(q.get("units", 0)) + int(q.get("nano", 0)) / 1e9
+
+    direction, lots = _signal_to_direction_and_qty(
+        signal, p_up, price, free_rub,
+        base_size_rub=base_size_rub, max_size_rub=max_size_rub, lot=lot,
+        instrument_type=inst_type, futures_max_lots=futures_max_lots,
+    )
+
+    if not direction or lots <= 0:
+        print(f"  ERR: no-qty (lots={lots}). Free RUB: {free_rub:,.0f}")
+        return
+
+    print(f"  → {direction} {lots} лот{'а' if lots in (2,3,4) else 'ов' if lots > 4 else ''} {ticker} @ {price:.2f}")
+
+    try:
+        res = client.sandbox_post_order(account_id, figi, lots, direction)
+        print(f"  ✅ Ордер отправлен: order_id={res.get('orderId')}")
+
+        # Логируем в paper_trading_log
+        log_entry = {
+            "ts_signal": today_iso,
+            "signal":    signal,
+            "ticker":    ticker,
+            "figi":      figi,
+            "price":     price,
+            "free_rub_before": round(free_rub, 2),
+            "direction": direction,
+            "lots":      lots,
+            "executed":  True,
+            "order_id":  res.get("orderId"),
+            "error":     None,
+        }
+        write_header = not PAPER_LOG.exists()
+        with PAPER_LOG.open("a", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(log_entry.keys()))
+            if write_header:
+                w.writeheader()
+            w.writerow(log_entry)
+        print(f"  ✅ Записано в {PAPER_LOG}")
+    except Exception as e:
+        print(f"  ❌ Ордер не прошёл: {e}")
 
 
 # ===========================================================================

@@ -1,0 +1,51 @@
+{
+  "date": "2026-05-16",
+  "time_utc": "2026-05-16T13:02:23.204378+00:00",
+  "ticker": "SLV",
+  "signal": "BUY",
+  "p_up": 0.6576023987787182,
+  "p_short": null,
+  "rationale": "p_up=0.658, trend5d=0.697, режим=downtrend_high, cooldown ещё 0d",
+  "current_price": 77.16100311279297,
+  "recommendation": "🟢 КУПИТЬ SLV — production-модель видит UP (p_up=66%). Trailing stop 7%, max hold 45d.",
+  "source": "production_inference",
+  "actual_signal_date": "2026-05-15",
+  "regime": "downtrend_high",
+  "p_up_trend_5d": 0.697,
+  "p_up_trend_10d": 0.7473,
+  "above_threshold": true,
+  "cooldown_remaining": 0,
+  "paper_trade": {
+    "executed": true,
+    "skipped_reason": null,
+    "user_config_applied": {
+      "current_balance_rub": 1953745.02,
+      "allocation_pct": 30.0,
+      "allocation_rub": 586123.51,
+      "risk_pct": 5.0,
+      "lots_dynamic": 29,
+      "lots_static": 15,
+      "compounding": true
+    },
+    "raw_output": "  Нет сигналов на 2026-05-16. Пропускаем.\n"
+  },
+  "portfolio_status": "=== Sandbox портфель ===\n  Account ID: df3d7a77-3e75-4274-8467-fe08085256ff\n  Total:      1,953,745.02 RUB\n  Shares:     0.00 RUB\n  Bonds:      0.00 RUB\n  ETF:        0.00 RUB\n  Currencies: 1,099,441.02 RUB\n  Futures:    854,304.00 RUB\n  Expected yield: {'units': '77', 'nano': 613200000}\n  Positions: 2\n    - currency figi=RUB000UTSTOM qty=1099441 avg=1\n    - futures figi=FSLVRUB00000 qty=48 avg=199\n",
+  "gold": {
+    "date": "2026-05-16",
+    "ticker": "GLDRUBF",
+    "signal": "HOLD",
+    "p_up": 0.684859791988904,
+    "current_price": 4555.7998046875,
+    "source": "production_inference",
+    "actual_signal_date": "2026-05-15",
+    "regime": "downtrend_medium",
+    "p_up_trend_5d": 0.5875,
+    "above_threshold": true,
+    "cooldown_remaining": 2,
+    "rationale": "GOLD p_up=0.685, режим=downtrend_medium, cooldown ещё 2d",
+    "paper_trade": {
+      "executed": false,
+      "skipped_reason": "signal=HOLD — paper trade не нужен"
+    }
+  }
+}

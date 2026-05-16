@@ -297,7 +297,10 @@ def build_trading_report(do_paper_trade: bool = True) -> None:
     action = {
         "date":            TODAY,
         "time_utc":        datetime.now(timezone.utc).isoformat(),
-        "ticker":          os.getenv("TINKOFF_SILVER_TICKER", "SLVRUBF"),
+        # SLV блокирован в РФ — игнорируем env, всегда SLVRUBF
+        "ticker":          ("SLVRUBF"
+                            if os.getenv("TINKOFF_SILVER_TICKER", "SLVRUBF") == "SLV"
+                            else os.getenv("TINKOFF_SILVER_TICKER", "SLVRUBF")),
         "signal":          "HOLD",
         "p_up":            None,
         "p_short":         None,
