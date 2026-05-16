@@ -49,9 +49,65 @@ with st.sidebar:
     st.markdown("*ML-помощник для торговли серебром*")
     st.markdown("---")
     st.caption(f"v25 CPCV · обновлено {datetime.now().strftime('%H:%M:%S')}")
-    if st.button("🔄 Перезагрузить данные", use_container_width=True):
+    if st.button("🔄 Перезагрузить данные", use_container_width=True,
+                 help="Только обновить UI из существующих файлов"):
         st.cache_data.clear()
         st.rerun()
+
+    # Полный refresh с пересчётом модели на свежих данных
+    st.markdown("---")
+    st.markdown("**🔬 Свежий сигнал**")
+    st.caption("Скачивает новые цены → пересчитывает модель → новый прогноз. ~3-5 минут.")
+    if st.button("🔬 Refresh signal (полный)", use_container_width=True, type="primary"):
+        import subprocess
+        import sys as _sys
+        import os as _os
+
+        env = _os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
+
+        ph = st.empty()
+        with st.spinner("⏳ Шаг 1/4: Refresh silver data (yfinance)..."):
+            ph.text("Шаг 1/4: Силвер data...")
+            r1 = subprocess.run(
+                [_sys.executable, "silver_assistant_v22_risk_aware.py", "--no-wf", "--no-mh"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                env=env, cwd=str(ROOT), timeout=600,
+            )
+        with st.spinner("⏳ Шаг 2/4: Силвер inference..."):
+            ph.text("Шаг 2/4: Силвер inference...")
+            r2 = subprocess.run(
+                [_sys.executable, "silver_production_inference.py"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                env=env, cwd=str(ROOT), timeout=300,
+            )
+        with st.spinner("⏳ Шаг 3/4: Gold data..."):
+            ph.text("Шаг 3/4: Gold data...")
+            r3 = subprocess.run(
+                [_sys.executable, "silver_assistant_v26_multiasset.py", "--fetch"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                env=env, cwd=str(ROOT), timeout=600,
+            )
+        with st.spinner("⏳ Шаг 4/4: Gold inference..."):
+            ph.text("Шаг 4/4: Gold inference...")
+            r4 = subprocess.run(
+                [_sys.executable, "gold_production_inference.py"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                env=env, cwd=str(ROOT), timeout=300,
+            )
+        ph.empty()
+
+        all_ok = all(r.returncode == 0 for r in [r1, r2, r3, r4])
+        if all_ok:
+            st.success("✅ Сигналы обновлены на свежих данных")
+            st.cache_data.clear()
+            st.rerun()
+        else:
+            st.error("❌ Ошибки при refresh:")
+            for name, r in [("v22", r1), ("silver inf", r2), ("gold data", r3), ("gold inf", r4)]:
+                if r.returncode != 0:
+                    st.code(f"{name}: {r.stderr[-500:]}")
 
     auto_refresh = st.checkbox("⏱ Авто-обновление (60 сек)", value=False,
                                  help="Перезагружает данные каждые 60 секунд")
@@ -72,6 +128,15 @@ st.caption("Текущий сигнал, баланс, история — всё
 sig = get_current_signal()
 kpis = get_kpis()
 tinkoff = get_tinkoff_status()
+
+# Warning если данные устарели
+if sig.get("is_stale"):
+    st.warning(
+        f"⚠ **{sig.get('stale_reason', 'Данные устарели')}**\n\n"
+        f"Сигнал показан как HOLD (консервативно). "
+        f"В sidebar нажмите **🔬 Refresh signal** чтобы получить актуальный прогноз "
+        f"на сегодняшних ценах (~3-5 минут)."
+    )
 
 # Большая карточка сигнала
 top_signal_badge(sig)

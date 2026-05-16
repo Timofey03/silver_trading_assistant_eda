@@ -244,34 +244,43 @@ def get_current_signal() -> dict:
     today = pd.Timestamp(_dt.now().date())
 
     if prod and prod.get("ok"):
-        # Динамический cooldown: считаем календарные дни с момента генерации сигнала
         sig_date = pd.Timestamp(prod["date"])
         days_passed = max(0, (today - sig_date).days)
         original_cooldown = int(prod.get("cooldown_remaining", 0))
-
-        # Приближение: 5 of 7 days are trading days
         trading_days_passed = int(days_passed * 5 / 7)
         cooldown_fresh = max(0, original_cooldown - trading_days_passed)
 
-        # ДИНАМИЧЕСКИЙ ПЕРЕСЧЁТ СИГНАЛА:
-        # Если cooldown истёк И p_up выше threshold → теперь BUY
-        # Если p_up ниже exit threshold → SELL
-        # Иначе HOLD
         p_up = float(prod["p_up"])
         threshold = float(prod.get("threshold", 0.49))
         exit_threshold = float(prod.get("exit_threshold", 0.43))
 
-        if cooldown_fresh == 0 and p_up >= threshold:
-            signal_fresh = "BUY"
-        elif p_up < exit_threshold:
-            signal_fresh = "SELL"
-        else:
+        # КОНСЕРВАТИВНАЯ ЛОГИКА:
+        # Если данные свежие (< 2 дней) — пересчитываем сигнал нормально
+        # Если данные устарели (>= 2 дней) — НЕ доверяем (p_up может уже не быть актуальным)
+        STALE_THRESHOLD_DAYS = 2
+        is_stale = days_passed >= STALE_THRESHOLD_DAYS
+
+        if is_stale:
+            # Не доверяем сигналу — показываем HOLD + предупреждение
             signal_fresh = "HOLD"
+            stale_reason = (
+                f"⚠ Данные устарели ({days_passed}d). "
+                f"p_up={p_up:.0%} могло сильно измениться. "
+                f"Нажмите 'Refresh signal' для свежего расчёта."
+            )
+        else:
+            if cooldown_fresh == 0 and p_up >= threshold:
+                signal_fresh = "BUY"
+            elif p_up < exit_threshold:
+                signal_fresh = "SELL"
+            else:
+                signal_fresh = "HOLD"
+            stale_reason = None
 
         return {
             "source":            "production",
             "signal":            signal_fresh,
-            "signal_original":   prod["signal"],   # для отладки
+            "signal_original":   prod["signal"],
             "signal_short":      "HOLD",
             "p_up":              p_up,
             "p_up_trend_5d":     prod.get("p_up_trend_5d"),
@@ -283,6 +292,8 @@ def get_current_signal() -> dict:
             "signal_date":       sig_date,
             "today_date":        today,
             "data_age_days":     days_passed,
+            "is_stale":          is_stale,
+            "stale_reason":      stale_reason,
             "current_date":      last_date if last_date is not None else sig_date,
             "current_price":     last_price if last_price is not None else prod.get("silver_close"),
             "regime":            prod.get("regime", "—"),
