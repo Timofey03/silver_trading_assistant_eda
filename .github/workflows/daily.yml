@@ -5,10 +5,14 @@ on:
     # Утренний запуск: 08:00 MSK = 05:00 UTC
     # → данные вчерашнего close, сигнал готов до открытия MOEX (09:50)
     - cron: '0 5 * * 1-5'
+    # Дневной запуск: 14:00 MSK = 11:00 UTC
+    # → середина MOEX-сессии, можно среагировать на свежий sign в день
+    - cron: '0 11 * * 1-5'
     # Вечерний запуск: 22:00 MSK = 19:00 UTC
-    # → данные после COMEX settlement, свежайший сигнал
-    # → защита от double-trade встроена в --live (проверяет paper_trading_log)
+    # → данные после COMEX settlement, свежайший сигнал на завтра
     - cron: '0 19 * * 1-5'
+    # → защита от double-trade: --live проверяет paper_trading_log
+    #   (макс 1 ордер на тикер в день — guard в silver_paper_tinkoff.py)
   workflow_dispatch:            # ручной запуск из UI GitHub
 
 permissions:

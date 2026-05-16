@@ -96,7 +96,10 @@ def load_paper_trading_log() -> pd.DataFrame:
         return pd.DataFrame()
     df = pd.read_csv(p)
     if "ts_signal" in df.columns:
-        df["ts_signal"] = pd.to_datetime(df["ts_signal"], errors="coerce")
+        # Robust parse: берём только дату (первые 10 символов YYYY-MM-DD)
+        # Работает для ISO ("2026-05-16T13:17...") и простых дат ("2026-05-08")
+        date_str = df["ts_signal"].astype(str).str.slice(0, 10)
+        df["ts_signal"] = pd.to_datetime(date_str, format="%Y-%m-%d", errors="coerce")
     return df
 
 
