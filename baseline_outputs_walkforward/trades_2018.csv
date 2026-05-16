@@ -1,0 +1,3 @@
+direction,entry_date,exit_date,entry_price,exit_price,peak_price,gross_return,net_return,hold_days,exit_reason,realistic_cost,is_illiquid,net_return_v22,wf_year
+LONG,2018-01-08,2018-02-09,17.064,16.116,17.551,-0.055556,-0.05885910525826866,24,trail_stop,0.0033031052582686597,False,-0.056056,2018
+LONG,2018-04-20,2018-06-01,17.147,16.388,17.147,-0.044264,-0.0473847656619476,30,max_hold,0.003120765661947608,False,-0.044764,2018
