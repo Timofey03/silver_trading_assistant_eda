@@ -44,6 +44,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import pandas as pd
 import requests
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
@@ -550,9 +551,30 @@ def cmd_live(ticker: str, base_size_rub: float = 5000.0, max_size_rub: float = 2
         print(f"  {signal} → ничего не делаем.")
         return
 
-    # Конвертация сигнала в Tinkoff direction:
-    #   BUY        → ORDER_DIRECTION_BUY  (открыть LONG)
-    #   SHORT/SELL → ORDER_DIRECTION_SELL (закрыть LONG / открыть SHORT)
+    # ЗАЩИТА ОТ DOUBLE-BUY:
+    # Проверяем что сегодня этим тикером ещё не торговали (string-match по дате).
+    today_utc_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if PAPER_LOG.exists():
+        try:
+            log_df = pd.read_csv(PAPER_LOG)
+            if not log_df.empty and "ts_signal" in log_df.columns:
+                # Берём первые 10 символов (YYYY-MM-DD) — работает и для ISO и для простых дат
+                log_df["_date_str"] = log_df["ts_signal"].astype(str).str[:10]
+                today_orders = log_df[
+                    (log_df["_date_str"] == today_utc_str)
+                    & (log_df["ticker"] == ticker)
+                    & (log_df["executed"].astype(str).str.lower() == "true")
+                ]
+                if not today_orders.empty:
+                    last_oid = today_orders.iloc[-1].get("order_id", "?")
+                    print(f"  ⏭ Уже исполнено сегодня ({today_utc_str}): "
+                          f"{len(today_orders)} ордер(ов) для {ticker}.")
+                    print(f"     Последний order_id: {last_oid}")
+                    print(f"     Пропускаем чтобы не дублировать.")
+                    return
+        except Exception as e:
+            print(f"  WARN: проверка дубликатов не удалась: {e}")
+
     print(f"\n  → Исполняем {signal} в Tinkoff sandbox ({ticker})...")
 
     today_str = today.strftime("%Y-%m-%d")
@@ -605,18 +627,21 @@ def cmd_live(ticker: str, base_size_rub: float = 5000.0, max_size_rub: float = 2
         print(f"  ✅ Ордер отправлен: order_id={res.get('orderId')}")
 
         # Логируем в paper_trading_log
+        # ВАЖНО: fieldnames строго совпадает с cmd_replay (включая p_signal)
+        # чтобы не было сдвига колонок при дописывании в существующий CSV.
         log_entry = {
-            "ts_signal": today_iso,
-            "signal":    signal,
-            "ticker":    ticker,
-            "figi":      figi,
-            "price":     price,
-            "free_rub_before": round(free_rub, 2),
-            "direction": direction,
-            "lots":      lots,
-            "executed":  True,
-            "order_id":  res.get("orderId"),
-            "error":     None,
+            "ts_signal":        today_iso,
+            "signal":           signal,
+            "p_signal":         p_up,
+            "ticker":           ticker,
+            "figi":             figi,
+            "price":            price,
+            "free_rub_before":  round(free_rub, 2),
+            "direction":        direction,
+            "lots":             lots,
+            "executed":         True,
+            "order_id":         res.get("orderId"),
+            "error":            None,
         }
         write_header = not PAPER_LOG.exists()
         with PAPER_LOG.open("a", encoding="utf-8", newline="") as f:
