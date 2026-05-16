@@ -241,10 +241,58 @@ st.info("""
 st.markdown("---")
 st.markdown("## 🔔 Telegram уведомления")
 
-st.caption("Получать алерт при появлении BUY/SHORT сигнала")
+# Live статус
+import os as _os
+tg_token = _os.getenv("TG_BOT_TOKEN", "").strip()
+tg_chat  = _os.getenv("TG_CHAT_ID", "").strip()
+
+tg_col1, tg_col2 = st.columns([2, 1])
+with tg_col1:
+    if tg_token and tg_chat:
+        st.success(f"✅ **Telegram подключён** · chat_id: `{tg_chat}`")
+        st.caption(f"Token: `{tg_token[:15]}...{tg_token[-6:]}`")
+    else:
+        st.error("❌ Telegram **не настроен** — нет TG_BOT_TOKEN / TG_CHAT_ID в .env")
+        st.caption("Запустите `python scripts/telegram_setup.py` для интерактивной настройки")
+
+with tg_col2:
+    if tg_token and tg_chat:
+        if st.button("📨 Отправить тест", use_container_width=True):
+            try:
+                import sys as _sys
+                _sys.path.insert(0, str(ROOT))
+                from app.notifier import TelegramNotifier
+                tg = TelegramNotifier()
+                ok = tg.send(
+                    "🧪 *Test from Silver Assistant*\n\n"
+                    "Если вы видите это сообщение — уведомления настроены правильно ✅",
+                )
+                if ok:
+                    st.success("✅ Отправлено! Проверьте Telegram.")
+                else:
+                    st.error("❌ Не удалось отправить")
+            except Exception as e:
+                st.error(f"Ошибка: {e}")
+
+st.caption("Получать алерт при появлении BUY/SHORT сигнала + ошибки daily run")
 
 with st.expander("Как настроить (5 минут)"):
     st.markdown("""
+**🚀 Автоматический способ** (рекомендую):
+
+В терминале:
+```bash
+python scripts/telegram_setup.py
+```
+
+Скрипт пошагово:
+1. Спросит токен бота
+2. Найдёт ваш chat_id через getUpdates
+3. Запишет в `.env`
+4. Отправит тестовое сообщение
+
+**📋 Ручной способ**:
+
 **Шаг 1: создать бота**
 1. В Telegram открыть [@BotFather](https://t.me/BotFather)
 2. `/newbot` → выбрать имя → получить **Bot Token**
@@ -254,7 +302,7 @@ with st.expander("Как настроить (5 минут)"):
 2. Открыть: `https://api.telegram.org/bot<TOKEN>/getUpdates`
 3. Найти `chat.id` в JSON ответе
 
-**Шаг 3: добавить в GitHub Secrets**
+**Шаг 3: добавить в GitHub Secrets** (для облачного автозапуска)
 - `TG_BOT_TOKEN` — токен бота
 - `TG_CHAT_ID` — ваш chat ID
 

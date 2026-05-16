@@ -47,6 +47,10 @@ jobs:
           TINKOFF_TOKEN: ${{ secrets.TINKOFF_TOKEN }}
           TINKOFF_MODE: sandbox
           TINKOFF_SILVER_TICKER: SLVRUBF
+          # Telegram notifications (опционально — если secrets не заданы,
+          # уведомления просто не отправятся, daily run всё равно сработает)
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID:   ${{ secrets.TG_CHAT_ID }}
         run: |
           python scripts/daily_run.py
         continue-on-error: true   # отчёты всё равно сохранятся

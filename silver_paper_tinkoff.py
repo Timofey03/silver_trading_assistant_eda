@@ -626,6 +626,29 @@ def cmd_live(ticker: str, base_size_rub: float = 5000.0, max_size_rub: float = 2
         res = client.sandbox_post_order(account_id, figi, lots, direction)
         print(f"  ✅ Ордер отправлен: order_id={res.get('orderId')}")
 
+        # Telegram уведомление
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from app.notifier import TelegramNotifier
+            tg = TelegramNotifier()
+            if tg.enabled:
+                if signal == "BUY":
+                    tg.notify_buy(
+                        ticker=ticker, p_up=p_up, price=price,
+                        lots=lots, order_id=res.get("orderId", "?"),
+                        trend_5d=prod.get("p_up_trend_5d"),
+                        regime=prod.get("regime", ""),
+                    )
+                elif signal in ("SELL", "SHORT"):
+                    tg.notify_sell(
+                        ticker=ticker, p_up=p_up, price=price,
+                        lots=lots, order_id=res.get("orderId", "?"),
+                        reason=f"p_up={p_up:.0%} ниже exit-порога",
+                    )
+                print(f"  📲 Telegram уведомление отправлено")
+        except Exception as e:
+            print(f"  ⚠ Telegram notify failed: {e}")
+
         # Логируем в paper_trading_log
         # ВАЖНО: fieldnames строго совпадает с cmd_replay (включая p_signal)
         # чтобы не было сдвига колонок при дописывании в существующий CSV.
