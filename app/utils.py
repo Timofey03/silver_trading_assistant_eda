@@ -171,14 +171,44 @@ def load_production_signal() -> dict:
 
 @st.cache_data(ttl=60)
 def load_gold_signal() -> dict:
-    """Свежий gold production-сигнал."""
+    """Свежий gold production-сигнал с динамическим cooldown."""
+    from datetime import datetime as _dt
     p = PROD_DIR / "gold_signal_today.json"
     if not p.exists():
         return {}
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        sig = json.loads(p.read_text(encoding="utf-8"))
     except Exception:
         return {}
+
+    if not sig.get("ok"):
+        return sig
+
+    # Динамический пересчёт cooldown + signal
+    today = pd.Timestamp(_dt.now().date())
+    sig_date = pd.Timestamp(sig["date"])
+    days_passed = max(0, (today - sig_date).days)
+    trading_days_passed = int(days_passed * 5 / 7)
+    original_cooldown = int(sig.get("cooldown_remaining", 0))
+    cooldown_fresh = max(0, original_cooldown - trading_days_passed)
+
+    p_up = float(sig["p_up"])
+    threshold = float(sig.get("threshold", 0.49))
+    exit_threshold = float(sig.get("exit_threshold", 0.43))
+
+    if cooldown_fresh == 0 and p_up >= threshold:
+        signal_fresh = "BUY"
+    elif p_up < exit_threshold:
+        signal_fresh = "SELL"
+    else:
+        signal_fresh = "HOLD"
+
+    sig["signal_original"]    = sig["signal"]
+    sig["signal"]             = signal_fresh
+    sig["cooldown_remaining"] = cooldown_fresh
+    sig["data_age_days"]      = days_passed
+    sig["today_date"]         = today.strftime("%Y-%m-%d")
+    return sig
 
 
 @st.cache_data(ttl=60)
@@ -197,8 +227,10 @@ def get_current_signal() -> dict:
     """
     Возвращает свежий сигнал.
 
-    Приоритет: production_inference (свежий, на СЕГОДНЯ) → CPCV fallback (~неделя назад).
+    Приоритет: production_inference → CPCV fallback.
+    Cooldown пересчитывается ДИНАМИЧЕСКИ на основе сегодняшней даты.
     """
+    from datetime import datetime as _dt
     prod = load_production_signal()
     d = load_decisions()
 
@@ -209,21 +241,49 @@ def get_current_signal() -> dict:
         last_date = d.index[-1]
         last_price = float(last_row.get("silver_close", 0)) if pd.notna(last_row.get("silver_close", float("nan"))) else None
 
-    # Если есть production-сигнал — используем его
+    today = pd.Timestamp(_dt.now().date())
+
     if prod and prod.get("ok"):
+        # Динамический cooldown: считаем календарные дни с момента генерации сигнала
+        sig_date = pd.Timestamp(prod["date"])
+        days_passed = max(0, (today - sig_date).days)
+        original_cooldown = int(prod.get("cooldown_remaining", 0))
+
+        # Приближение: 5 of 7 days are trading days
+        trading_days_passed = int(days_passed * 5 / 7)
+        cooldown_fresh = max(0, original_cooldown - trading_days_passed)
+
+        # ДИНАМИЧЕСКИЙ ПЕРЕСЧЁТ СИГНАЛА:
+        # Если cooldown истёк И p_up выше threshold → теперь BUY
+        # Если p_up ниже exit threshold → SELL
+        # Иначе HOLD
+        p_up = float(prod["p_up"])
+        threshold = float(prod.get("threshold", 0.49))
+        exit_threshold = float(prod.get("exit_threshold", 0.43))
+
+        if cooldown_fresh == 0 and p_up >= threshold:
+            signal_fresh = "BUY"
+        elif p_up < exit_threshold:
+            signal_fresh = "SELL"
+        else:
+            signal_fresh = "HOLD"
+
         return {
             "source":            "production",
-            "signal":            prod["signal"],
+            "signal":            signal_fresh,
+            "signal_original":   prod["signal"],   # для отладки
             "signal_short":      "HOLD",
-            "p_up":              prod["p_up"],
+            "p_up":              p_up,
             "p_up_trend_5d":     prod.get("p_up_trend_5d"),
             "p_up_trend_10d":    prod.get("p_up_trend_10d"),
             "p_up_trend_20d":    prod.get("p_up_trend_20d"),
-            "above_threshold":   prod.get("above_threshold"),
-            "threshold":         prod.get("threshold", 0.55),
-            "cooldown_remaining": prod.get("cooldown_remaining", 0),
-            "signal_date":       pd.Timestamp(prod["date"]),
-            "current_date":      last_date if last_date is not None else pd.Timestamp(prod["date"]),
+            "above_threshold":   p_up >= threshold,
+            "threshold":         threshold,
+            "cooldown_remaining": cooldown_fresh,
+            "signal_date":       sig_date,
+            "today_date":        today,
+            "data_age_days":     days_passed,
+            "current_date":      last_date if last_date is not None else sig_date,
             "current_price":     last_price if last_price is not None else prod.get("silver_close"),
             "regime":            prod.get("regime", "—"),
         }
@@ -365,7 +425,13 @@ def inject_styles() -> None:
 
 
 def top_signal_badge(sig: dict) -> None:
-    """Большая карточка сигнала наверху страницы."""
+    """Большая карточка сигнала наверху страницы.
+
+    Показывает СЕГОДНЯШНЮЮ дату как актуальный момент рекомендации.
+    Дата данных (на которых сделан прогноз) — в подзаголовке.
+    """
+    from datetime import datetime as _dt
+
     s = sig.get("signal", "HOLD")
     css_class = {
         "BUY": "signal-buy",
@@ -384,22 +450,33 @@ def top_signal_badge(sig: dict) -> None:
     price = sig.get("current_price") or 0
     source = sig.get("source", "unknown")
 
-    # Спец-кейс: HOLD но p_up > threshold (cooldown)
     cooldown = sig.get("cooldown_remaining", 0)
     above = sig.get("above_threshold", False)
     extra = ""
     if s == "HOLD" and above and cooldown > 0:
         extra = f" &nbsp;·&nbsp; ⏳ cooldown ещё {cooldown}d → ожидается BUY"
+    elif s == "HOLD" and above and cooldown == 0:
+        extra = " &nbsp;·&nbsp; 🔔 cooldown истёк — BUY может сработать в следующий запуск"
+
+    # СЕГОДНЯШНЯЯ дата + дата данных в подзаголовке
+    today_str = _dt.now().strftime("%d %b %Y")
+    data_age = sig.get("data_age_days", 0)
 
     if source == "production":
-        source_lbl = "🟢 production-модель (свежий)"
-        date_txt = f"Прогноз на {sig['signal_date'].strftime('%d %b %Y')}"
+        if data_age == 0:
+            data_note = ""
+        elif data_age == 1:
+            data_note = " · 📅 по данным за вчера"
+        else:
+            data_note = f" · 📅 по данным {data_age}d назад"
+        source_lbl = "🟢 production-модель" + data_note
+        date_txt = f"Рекомендация на {today_str}"
     elif source == "cpcv_fallback":
         source_lbl = "🟡 CPCV fallback (устаревший)"
-        date_txt = f"Сигнал от {sig['signal_date'].strftime('%d %b %Y')}"
+        date_txt = f"Рекомендация на {today_str}"
     else:
         source_lbl = ""
-        date_txt = "—"
+        date_txt = today_str
 
     st.markdown(f"""
     <div class="signal-card {css_class}">

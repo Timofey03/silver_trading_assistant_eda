@@ -49,48 +49,48 @@ if st.button("🔄 Обновить из Tinkoff", use_container_width=False):
 # Big numbers
 # =============================================================================
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3 = st.columns(3)
 
-# Считаем реальный realized P&L (только non-cash positions)
+# Считаем unrealized P&L (только non-cash positions)
 unrealized = 0.0
+silver_invested = 0.0  # суммарный notional открытых позиций
 for p in tinkoff["positions"]:
     if p["instrument_type"] != "currency" and p["qty"] != 0:
         avg = p.get("avg_price", 0)
         cur = p.get("current_price", 0)
         if avg and cur:
             unrealized += (cur - avg) * p["qty"]
+            silver_invested += cur * p["qty"] * 100   # multiplier для futures
 
-# "Реальная" цифра счёта = Cash + unrealized P&L (без раздутого notional)
+# Если есть future notional из Tinkoff — используем его
+silver_invested = tinkoff["futures"]["value"] if tinkoff["futures"]["value"] > 0 else silver_invested
+
+# Реальный счёт = Cash + unrealized P&L
 real_value = tinkoff["cash"]["value"] + unrealized
 
 with col1:
     st.metric(
-        "💵 Всего (notional)", rub(tinkoff["total"]["value"]),
-        delta=rub(tinkoff["expected_yield"]["value"]),
-        help="Tinkoff показывает Cash + НОМИНАЛ futures. Это **не реальные деньги** — "
-             "реальное состояние счёта см. в карточке 'Реальный счёт'.",
+        "💰 Свободные деньги", rub(tinkoff["cash"]["value"]),
+        help="Cash на sandbox-счёте. Можно открыть новые позиции на эту сумму.",
     )
 
 with col2:
-    st.metric("💰 Cash", rub(tinkoff["cash"]["value"]),
-              help="Доступные деньги. Можно снять или открыть новые позиции.")
-
-with col3:
     st.metric(
-        "📊 Futures (notional)", rub(tinkoff["futures"]["value"]),
-        help="**Notional value** ваших фьючерсных позиций. "
-             "Это НЕ деньги, а ЭКСПОЗИЦИЯ на рынок: "
-             "notional = quote × multiplier × лоты. "
-             "Margin (реально заблокированные деньги) ≈ 10-15% от notional.",
+        "🥈 В серебре (экспозиция)", rub(silver_invested),
+        delta=rub(unrealized) if unrealized else None,
+        delta_color="normal" if unrealized >= 0 else "inverse",
+        help="Текущая стоимость ваших открытых позиций в серебре "
+             "(quote × multiplier × лоты). Реально из cash заблокировано ~10-15% "
+             "как margin, остальное — экспозиция на рост/падение цены.",
     )
 
-with col4:
+with col3:
     st.metric(
         "📈 Реальный счёт", rub(real_value),
         delta=rub(unrealized),
         delta_color="normal" if unrealized >= 0 else "inverse",
-        help="Cash + текущий unrealized P&L по открытым позициям. "
-             "Это реальная стоимость вашего счёта.",
+        help="Cash + unrealized P&L по позициям. "
+             "Это сколько вы реально имеете прямо сейчас.",
     )
 
 
