@@ -1,6 +1,6 @@
 {
-  "up_threshold": 0.55,
-  "cooldown": 5,
-  "valid_buys": 38,
-  "valid_precision": 0.47368421052631576
+  "up_threshold": 0.45,
+  "cooldown": 7,
+  "valid_buys": 32,
+  "valid_precision": 0.46875
 }
