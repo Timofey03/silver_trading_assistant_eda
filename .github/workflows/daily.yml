@@ -22,6 +22,10 @@ jobs:
   daily-run:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Заглушаем deprecation warning Node 20 → 24 (force-migrate)
+      # Deadline: 2 июня 2026 GitHub принудительно переключит
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
     steps:
       - name: Checkout repo
