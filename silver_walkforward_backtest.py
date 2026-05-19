@@ -54,7 +54,10 @@ from silver_assistant_v18_adaptive import (
     HISTORICAL_UP_RATE,
 )
 from silver_assistant_v16_binary import TOP_FEATURES_N
-from silver_signal_modes import OPTIMAL_PARAMS, generate_signals_with_exits, backtest_with_model_exits
+from silver_signal_modes import (
+    OPTIMAL_PARAMS, PRESETS,
+    generate_signals_with_exits, backtest_with_model_exits,
+)
 from silver_assistant_v23_honest import (
     equity_compounded_sequential, risk_metrics_honest,
     recompute_trades_with_realistic_costs, RealisticCosts,
@@ -134,14 +137,25 @@ def predict_year(
 
 def backtest_year(
     df: pd.DataFrame, p_up: pd.Series, cutoff_year: int,
+    mode_name: str = "optimal",
+    enable_short: bool = False,
+    enable_kelly: bool = False,
 ) -> pd.DataFrame:
-    """Бэктест с Optimal mode на год."""
+    """
+    Бэктест с выбранным mode на один год.
+
+    mode_name:    пресет из PRESETS (default "optimal" = MaxReturn v28)
+    enable_short: торговать в обе стороны (LONG + SHORT)
+    enable_kelly: пропорциональный сайзинг на основе p_up
+    """
+    mode = PRESETS.get(mode_name, OPTIMAL_PARAMS)
+
     test_data = df[df.index.year == cutoff_year].copy()
-    test_data["p_up"] = p_up.reindex(test_data.index)
+    test_data["p_up"]  = p_up.reindex(test_data.index)
     test_data["split"] = f"wf_{cutoff_year}"
 
     if "silver_atr_14d" not in test_data.columns:
-        if {"silver_high","silver_low","silver_close"}.issubset(test_data.columns):
+        if {"silver_high", "silver_low", "silver_close"}.issubset(test_data.columns):
             cp = test_data["silver_close"].shift(1)
             tr = pd.concat([
                 test_data["silver_high"] - test_data["silver_low"],
@@ -150,9 +164,17 @@ def backtest_year(
             ], axis=1).max(axis=1)
             test_data["silver_atr_14d"] = tr.ewm(span=14, adjust=False).mean()
 
-    signaled = generate_signals_with_exits(test_data, test_data["p_up"], OPTIMAL_PARAMS)
-    trades = backtest_with_model_exits(signaled, f"wf_{cutoff_year}", OPTIMAL_PARAMS,
-                                         cost=COST_PER_TRADE)
+    signaled = generate_signals_with_exits(
+        test_data, test_data["p_up"], mode,
+        enable_short=enable_short,
+        enable_kelly=enable_kelly,
+    )
+    trades = backtest_with_model_exits(
+        signaled, f"wf_{cutoff_year}", mode,
+        cost=COST_PER_TRADE,
+        enable_short=enable_short,
+        enable_kelly=enable_kelly,
+    )
 
     if not trades.empty:
         costs = RealisticCosts()
@@ -211,7 +233,18 @@ def main() -> None:
     ap.add_argument("--years", type=str, default="2018,2019,2020,2021,2022,2023,2024,2025",
                     help="Comma-separated years to backtest")
     ap.add_argument("--year",  type=int, default=None, help="Only one year")
+    ap.add_argument(
+        "--mode", choices=list(PRESETS.keys()), default="optimal",
+        help="Торговый пресет: optimal/max_return (default), balanced, consistent, "
+             "conservative, aggressive, ultra",
+    )
+    ap.add_argument("--short",  action="store_true", help="Включить SHORT позиции")
+    ap.add_argument("--kelly",  action="store_true", help="Включить Kelly sizing")
     args = ap.parse_args()
+
+    print(f"  Режим: {args.mode}"
+          + (" + SHORT" if args.short else "")
+          + (" + Kelly" if args.kelly else ""))
 
     print("=" * 70)
     print(" Walk-forward backtest: 8 независимых OOS периодов")
@@ -235,9 +268,14 @@ def main() -> None:
         print(f"  Test:  {test_size} rows ({year})")
 
         try:
-            model = train_for_year(df, year, feature_cols)
-            p_up = predict_year(df, model, year, feature_cols)
-            trades = backtest_year(df, p_up, year)
+            model  = train_for_year(df, year, feature_cols)
+            p_up   = predict_year(df, model, year, feature_cols)
+            trades = backtest_year(
+                df, p_up, year,
+                mode_name=args.mode,
+                enable_short=args.short,
+                enable_kelly=args.kelly,
+            )
         except Exception as e:
             print(f"  ERR: {type(e).__name__}: {e}")
             continue
