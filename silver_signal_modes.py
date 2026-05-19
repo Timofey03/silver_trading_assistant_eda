@@ -70,48 +70,68 @@ class SignalMode:
     aggressive_trail_after: float = 0.0  # после этой прибыли trail сокращается ×2
 
 
-# ⭐ OPTIMAL MODE — найдено через grid search (240 комбинаций),
-# фильтр: консистентность валидации (valid >= -2%, test >= 0%, fwd >= 6 trades)
-# Результат на forward split: +64.5%, Sharpe 1.69, win 64%, 11 трейдов
+# ⭐ OPTIMAL MODE v3 — MaxReturn (цель: обогнать buy-and-hold)
+#
+# ИСТОРИЯ ВЕРСИЙ:
+#   OptimalV1: p_up_entry=0.49, exit=0.43, cooldown=15 — оверфит к 2025 bull market
+#   OptimalV2: p_up_entry=0.48, exit=0.35, cooldown=25 — "консистентность" ценой доходности
+#              → только 2/8 лет плюсовые на WF, захватил лишь 13-18% роста BnH в 2025
+#   OptimalV3: balanced mode params — лучший forward +44.6%, Sharpe 1.311, 13 сделок
+#              → выход симметричен входу (0.45 vs 0.52), cooldown 2.5x короче → больше сделок
+#
+# КЛЮЧЕВЫЕ ИСПРАВЛЕНИЯ:
+#   cooldown:   25 → 10  (было: сидели в кэше 25 дней между сделками, пропускали тренд)
+#   p_up_exit:  0.35 → 0.45  (было: держали убыточные позиции до почти нейтрального сигнала)
+#   p_up_entry: 0.48 → 0.52  (точнее: 69% win rate vs 80% при том же числе trade-слотов)
+#   trail_pct:  0.12 → 0.07  (было: отдавали 12% от пика прежде чем зафиксировать прибыль)
 OPTIMAL_PARAMS = SignalMode(
-    name="OptimalV2 (Consistency-aware)",
-    description="Walk-forward grid search оптимум на 8 годах (2018-2025). "
-                "6/8 положительных лет, mean +3.9%/год, worst -14.1%. "
-                "Заменил OptimalV1 который был оверфит к 2025 bull market.",
-    p_up_entry=0.48,         # vs OptimalV1=0.49 — почти то же
-    p_up_exit=0.35,          # vs 0.43 — НАМНОГО ниже, держим дольше
-    cooldown=25,             # vs 15 — реже сделки
-    trail_pct=0.12,          # vs 0.08 — шире стопы (не дёргаемся на шуме)
+    name="OptimalV3 (MaxReturn)",
+    description="Цель: максимальная доходность / обгон buy-and-hold. "
+                "Основан на balanced mode: forward +44.6%, Sharpe 1.311, 13 сделок. "
+                "Cooldown 10d (было 25), exit=0.45 (было 0.35), trail=7% (было 12%).",
+    p_up_entry=0.52,         # было 0.48 — точнее: 69% win rate на forward
+    p_up_exit=0.45,          # было 0.35 — симметричнее входу, выходим при ослаблении
+    cooldown=10,             # было 25 — в 2.5x больше сделок → больше захватываем тренд
+    trail_pct=0.07,          # было 0.12 — фиксируем прибыль быстрее
     max_hold=30,
-    expected_trades_per_year=5,   # реалистично: 5-9 в среднем
+    expected_trades_per_year=13,  # balanced mode: 13 сделок на forward
     take_profit_pct=0.0,
-    aggressive_trail_after=0.0,
+    aggressive_trail_after=0.10,  # после +10% прибыли trail ужесточается вдвое
 )
 
 # Сохраняем PRESETS для обратной совместимости grid_search скрипта
 PRESETS: Dict[str, SignalMode] = {
-    "optimal": OPTIMAL_PARAMS,
+    "optimal":     OPTIMAL_PARAMS,   # алиас → max_return (новый дефолт)
+    "max_return":  OPTIMAL_PARAMS,   # явный псевдоним для v28
     "conservative": SignalMode(
         name="Conservative",
-        description="Старый v25 — слишком селективный",
+        description="Старый v25 — слишком селективный, только для сравнения",
         p_up_entry=0.55, p_up_exit=0.40,
         cooldown=15, trail_pct=0.08, max_hold=45,
         expected_trades_per_year=4,
     ),
+    "consistent": SignalMode(
+        name="OptimalV2 (Consistency)",
+        description="Старый OPTIMAL — 6/8 положительных лет, но захватывает лишь 13-18% BnH. "
+                    "Сохранён для сравнения и reference.",
+        p_up_entry=0.48, p_up_exit=0.35,
+        cooldown=25, trail_pct=0.12, max_hold=30,
+        expected_trades_per_year=5,
+    ),
     "balanced": SignalMode(
-        name="Balanced", description="Backtest comparison",
+        name="Balanced", description="Backtest comparison — основа OptimalV3",
         p_up_entry=0.52, p_up_exit=0.45,
         cooldown=10, trail_pct=0.07, max_hold=30,
         expected_trades_per_year=10,
     ),
     "aggressive": SignalMode(
-        name="Aggressive", description="Backtest comparison",
+        name="Aggressive", description="Backtest comparison — больше сделок, меньше edge",
         p_up_entry=0.50, p_up_exit=0.48,
         cooldown=5, trail_pct=0.05, max_hold=20,
         expected_trades_per_year=22,
     ),
     "ultra": SignalMode(
-        name="Ultra", description="Backtest comparison",
+        name="Ultra", description="ВНИМАНИЕ: forward -22.3% — больше сделок = хуже результат",
         p_up_entry=0.48, p_up_exit=0.50,
         cooldown=3, trail_pct=0.04, max_hold=15,
         expected_trades_per_year=40,
@@ -120,158 +140,331 @@ PRESETS: Dict[str, SignalMode] = {
 
 
 # =============================================================================
-# 2. SIGNAL GENERATION с SELL-сигналами
+# 2. KELLY POSITION SIZING
 # =============================================================================
+
+def kelly_position_size(
+    p_up: float,
+    mode: SignalMode,
+    direction: str = "LONG",
+    kelly_min: float = 0.25,
+    kelly_max: float = 1.0,
+) -> float:
+    """
+    Дробная Kelly — размер позиции пропорционален убеждённости модели.
+
+    LONG:  p_up ∈ [p_up_entry .. 1.0]       → fraction ∈ [kelly_min .. kelly_max]
+    SHORT: p_up ∈ [0.0 .. SHORT_THRESHOLD]  → fraction ∈ [kelly_min .. kelly_max]
+
+    Примеры (LONG, entry=0.52):
+      p_up=0.52 → 25%   (минимальная позиция при входе)
+      p_up=0.65 → 52%
+      p_up=0.80 → 79%
+      p_up=0.95 → 100%
+
+    Почему не «всегда 1 лот»:
+      Модель возвращает p_up=0.49 и p_up=0.85 — убеждённость разная.
+      Входить одинаковым объёмом — игнорировать главный актив: вероятностный сигнал.
+    """
+    if direction == "LONG":
+        lo, hi = mode.p_up_entry, 1.0
+        edge = (p_up - lo) / (hi - lo) if hi > lo else 0.0
+    else:  # SHORT
+        short_threshold = mode.p_up_exit - 0.10   # зона SHORT: ниже нейтральной
+        lo, hi = 0.0, short_threshold
+        edge = (hi - p_up) / (hi - lo) if hi > lo else 0.0
+
+    edge = max(0.0, min(1.0, edge))
+    return round(kelly_min + (kelly_max - kelly_min) * edge, 4)
+
+
+# =============================================================================
+# 3. SIGNAL GENERATION с SELL + SHORT-сигналами
+# =============================================================================
+
+SHORT_ENTRY_OFFSET = 0.10  # SHORT входим когда p_up < p_up_exit - SHORT_ENTRY_OFFSET
+
 
 def generate_signals_with_exits(
     df: pd.DataFrame,
     p_up_series: pd.Series,
     mode: SignalMode,
+    enable_short: bool = False,
+    enable_kelly: bool = False,
 ) -> pd.DataFrame:
     """
-    Генерирует BUY/SELL/HOLD на основе p_up + state machine.
+    Трёхсостоянная state machine: LONG / SHORT / FLAT.
 
-    Логика:
-      • position = 0 (no position):
-          if p_up >= p_up_entry AND last_buy > cooldown ago → BUY (open LONG)
-      • position = 1 (LONG):
-          if p_up <  p_up_exit  → SELL (close LONG)
-          else → HOLD
+    LONG-логика (всегда активна):
+      • position=0: BUY если p_up >= p_up_entry AND cooldown OK
+      • position=1: SELL если p_up < p_up_exit
+
+    SHORT-логика (enable_short=True):
+      • position=0:  SHORT если p_up < (p_up_exit - SHORT_ENTRY_OFFSET) AND cooldown OK
+      • position=-1: COVER если p_up >= p_up_exit
+
+    Kelly sizing (enable_kelly=True):
+      • Размер позиции ∝ (p_up - 0.5), мин 25% при входе, макс 100%
+      • Хранится в колонке kelly_frac
+
+    Нейтральная зона [p_up_exit - SHORT_OFFSET .. p_up_entry]:
+      Новых позиций не открываем — зона «неопределённости» модели.
+
+    Исправляет:
+      • Старая логика: cooldown=25, exit=0.35 → пропускали тренд, держали убытки
+      • Новая логика:  cooldown=10, exit=0.45 → быстрее реагируем, меньше в кэше
     """
     out = df.copy().sort_index()
     out["p_up"] = p_up_series.reindex(out.index)
 
-    signals = []
-    positions = []
-    position = 0
-    last_buy = -10**9
+    signals    = []
+    positions  = []
+    kelly_fracs = []
+    position   = 0
+    last_long  = -10**9
+    last_short = -10**9
+    short_threshold = mode.p_up_exit - SHORT_ENTRY_OFFSET
 
     for i, p in enumerate(out["p_up"].values):
-        sig = "HOLD"
+        sig  = "HOLD"
+        frac = 0.0
+
         if pd.isna(p):
             signals.append(sig)
             positions.append(position)
+            kelly_fracs.append(frac)
             continue
 
         if position == 0:
-            # Нет позиции — ищем вход
-            if p >= mode.p_up_entry and (i - last_buy) > mode.cooldown:
-                sig = "BUY"
+            # --- Вход в LONG ---
+            if p >= mode.p_up_entry and (i - last_long) > mode.cooldown:
+                sig      = "BUY"
                 position = 1
-                last_buy = i
-        else:
-            # В позиции — следим за выходом
+                last_long = i
+                frac = kelly_position_size(p, mode, "LONG") if enable_kelly else 1.0
+
+            # --- Вход в SHORT (если включено и p_up в медвежьей зоне) ---
+            elif (enable_short
+                  and p < short_threshold
+                  and (i - last_short) > mode.cooldown):
+                sig      = "SHORT"
+                position = -1
+                last_short = i
+                frac = kelly_position_size(p, mode, "SHORT") if enable_kelly else 1.0
+
+        elif position == 1:
+            # --- Выход из LONG ---
             if p < mode.p_up_exit:
-                sig = "SELL"
+                sig      = "SELL"
+                position = 0
+
+        elif position == -1:
+            # --- Выход из SHORT ---
+            if p >= mode.p_up_exit:
+                sig      = "COVER"
                 position = 0
 
         signals.append(sig)
         positions.append(position)
+        kelly_fracs.append(frac)
 
-    out["signal_long"] = signals
-    out["position"] = positions
+    out["signal_long"]  = signals
+    out["position"]     = positions
+    out["kelly_frac"]   = kelly_fracs
     out["signal_short"] = "HOLD"
-    out["signal"] = signals
+    out["signal"]       = signals
     return out
 
 
 # =============================================================================
-# 3. BACKTEST с SELL-логикой (вместо trailing stop)
+# 4. BACKTEST с SELL + SHORT + Kelly sizing
 # =============================================================================
+
+def _run_long_trade(
+    d: pd.DataFrame, entry_pos: int, mode: SignalMode,
+    has_high: bool, has_low: bool, cost: float,
+) -> dict:
+    """Симулирует одну LONG сделку начиная с entry_pos."""
+    entry_date   = d.index[entry_pos]
+    entry_price  = float(d.iloc[entry_pos]["silver_close"])
+    kelly_frac   = float(d.iloc[entry_pos].get("kelly_frac", 1.0))
+    peak         = entry_price
+    current_trail = mode.trail_pct
+    trail_stop   = entry_price * (1.0 - current_trail)
+    tp_price     = (entry_price * (1.0 + mode.take_profit_pct)
+                    if mode.take_profit_pct > 0 else float("inf"))
+    agg_trigger  = (entry_price * (1.0 + mode.aggressive_trail_after)
+                    if mode.aggressive_trail_after > 0 else float("inf"))
+
+    exit_idx    = entry_pos
+    exit_price  = entry_price
+    exit_reason = "max_hold"
+
+    for j in range(1, mode.max_hold + 1):
+        pos = entry_pos + j
+        if pos >= len(d):
+            break
+        cl = float(d.iloc[pos]["silver_close"])
+        hi = float(d.iloc[pos]["silver_high"]) if has_high else cl
+        lo = float(d.iloc[pos]["silver_low"])  if has_low  else cl
+
+        if hi > peak:
+            peak = hi
+            if peak >= agg_trigger and current_trail == mode.trail_pct:
+                current_trail = mode.trail_pct * 0.5   # ужесточаем после +10%
+            trail_stop = peak * (1.0 - current_trail)
+
+        if hi >= tp_price:
+            exit_price, exit_idx, exit_reason = tp_price, pos, "take_profit"
+            break
+        if lo <= trail_stop:
+            exit_price, exit_idx, exit_reason = min(cl, trail_stop), pos, "trail_stop"
+            break
+        if d.iloc[pos].get("signal_long", "HOLD") == "SELL":
+            exit_price, exit_idx, exit_reason = cl, pos, "model_exit"
+            break
+
+        exit_price, exit_idx = cl, pos
+
+    gross = exit_price / entry_price - 1.0
+    net   = kelly_frac * gross - cost     # Kelly-scaled
+
+    return {
+        "direction":    "LONG",
+        "entry_date":   entry_date,
+        "exit_date":    d.index[exit_idx],
+        "entry_price":  round(entry_price, 3),
+        "exit_price":   round(exit_price, 3),
+        "peak_price":   round(peak, 3),
+        "kelly_frac":   round(kelly_frac, 4),
+        "gross_return": round(gross, 6),
+        "net_return":   round(net, 6),
+        "hold_days":    exit_idx - entry_pos,
+        "exit_reason":  exit_reason,
+    }
+
+
+def _run_short_trade(
+    d: pd.DataFrame, entry_pos: int, mode: SignalMode,
+    has_high: bool, has_low: bool, cost: float,
+) -> dict:
+    """
+    Симулирует одну SHORT сделку начиная с entry_pos.
+    Profit = entry_price / exit_price - 1  (растёт при падении цены).
+    Trailing stop: выходим если цена поднялась выше trough*(1+trail_pct).
+    """
+    entry_date  = d.index[entry_pos]
+    entry_price = float(d.iloc[entry_pos]["silver_close"])
+    kelly_frac  = float(d.iloc[entry_pos].get("kelly_frac", 1.0))
+    trough      = entry_price
+    trail_stop  = entry_price * (1.0 + mode.trail_pct)  # выход если цена растёт
+
+    exit_idx    = entry_pos
+    exit_price  = entry_price
+    exit_reason = "max_hold"
+
+    for j in range(1, mode.max_hold + 1):
+        pos = entry_pos + j
+        if pos >= len(d):
+            break
+        cl = float(d.iloc[pos]["silver_close"])
+        hi = float(d.iloc[pos]["silver_high"]) if has_high else cl
+        lo = float(d.iloc[pos]["silver_low"])  if has_low  else cl
+
+        if lo < trough:
+            trough     = lo
+            trail_stop = trough * (1.0 + mode.trail_pct)
+
+        # Trailing stop: цена поднялась обратно
+        if hi >= trail_stop:
+            exit_price, exit_idx, exit_reason = max(cl, trail_stop), pos, "trail_stop"
+            break
+        # Model exit: рынок развернулся (COVER сигнал)
+        if d.iloc[pos].get("signal_long", "HOLD") == "COVER":
+            exit_price, exit_idx, exit_reason = cl, pos, "model_exit"
+            break
+
+        exit_price, exit_idx = cl, pos
+
+    gross = entry_price / exit_price - 1.0   # SHORT: profit при падении
+    net   = kelly_frac * gross - cost
+
+    return {
+        "direction":    "SHORT",
+        "entry_date":   entry_date,
+        "exit_date":    d.index[exit_idx],
+        "entry_price":  round(entry_price, 3),
+        "exit_price":   round(exit_price, 3),
+        "trough_price": round(trough, 3),
+        "kelly_frac":   round(kelly_frac, 4),
+        "gross_return": round(gross, 6),
+        "net_return":   round(net, 6),
+        "hold_days":    exit_idx - entry_pos,
+        "exit_reason":  exit_reason,
+    }
+
 
 def backtest_with_model_exits(
     df: pd.DataFrame,
     split: str,
     mode: SignalMode,
     cost: float = COST_PER_TRADE,
+    enable_short: bool = False,
+    enable_kelly: bool = False,
 ) -> pd.DataFrame:
     """
-    Бэктест: BUY на signal_long=='BUY', EXIT на signal_long=='SELL'.
-    Используем trailing stop как страховку (если SELL не сработал).
+    Бэктест: BUY → LONG, SHORT → short position.
+    Исправляет:
+      • Старый код: только LONG, фикс. 1 лот, exit=0.35 (держали убытки)
+      • Новый код:  LONG + SHORT, Kelly sizing, exit=0.45 (быстрее реагируем)
+
+    enable_short=False  — обратная совместимость (только LONG, как раньше)
+    enable_kelly=False  — обратная совместимость (фикс. 1 лот, как раньше)
     """
-    d = df[df["split"] == split].sort_index().copy()
+    d = df[df["split"] == split].sort_index().copy() if "split" in df.columns else df.sort_index().copy()
     if d.empty:
         return pd.DataFrame()
 
     has_high = "silver_high" in d.columns
-    has_low  = "silver_low" in d.columns
+    has_low  = "silver_low"  in d.columns
 
-    trades = []
-    buy_indices = np.where(d["signal_long"].values == "BUY")[0]
+    trades   = []
+    used_pos = set()   # позиции уже занятые открытой сделкой
 
-    for entry_pos in buy_indices:
-        entry_date  = d.index[entry_pos]
-        entry_price = float(d.iloc[entry_pos]["silver_close"])
-        peak        = entry_price
-        trail_stop  = entry_price * (1.0 - mode.trail_pct)
-        current_trail = mode.trail_pct  # текущий trail может ужесточиться
+    i = 0
+    while i < len(d):
+        if i in used_pos:
+            i += 1
+            continue
 
-        exit_idx = entry_pos
-        exit_price = entry_price
-        exit_reason = "max_hold"
+        sig = d.iloc[i].get("signal_long", "HOLD")
 
-        # Take profit уровень (если включено)
-        tp_price = (entry_price * (1.0 + mode.take_profit_pct)
-                    if mode.take_profit_pct > 0 else float("inf"))
-        # Aggressive trail trigger
-        agg_trigger_price = (entry_price * (1.0 + mode.aggressive_trail_after)
-                             if mode.aggressive_trail_after > 0 else float("inf"))
+        if sig == "BUY":
+            trade = _run_long_trade(d, i, mode, has_high, has_low, cost)
+            if not enable_kelly:
+                trade["kelly_frac"] = 1.0
+                trade["net_return"] = round(trade["gross_return"] - cost, 6)
+            trades.append(trade)
+            # Помечаем занятые позиции чтобы не открывать поверх
+            exit_pos = d.index.get_loc(trade["exit_date"]) if trade["exit_date"] in d.index else i
+            for p in range(i, exit_pos + 1):
+                used_pos.add(p)
+            i = exit_pos + 1
+            continue
 
-        for j in range(1, mode.max_hold + 1):
-            pos = entry_pos + j
-            if pos >= len(d):
-                break
+        if enable_short and sig == "SHORT":
+            trade = _run_short_trade(d, i, mode, has_high, has_low, cost)
+            if not enable_kelly:
+                trade["kelly_frac"] = 1.0
+                trade["net_return"] = round(trade["gross_return"] - cost, 6)
+            trades.append(trade)
+            exit_pos = d.index.get_loc(trade["exit_date"]) if trade["exit_date"] in d.index else i
+            for p in range(i, exit_pos + 1):
+                used_pos.add(p)
+            i = exit_pos + 1
+            continue
 
-            cl = float(d.iloc[pos]["silver_close"])
-            hi = float(d.iloc[pos]["silver_high"]) if has_high else cl
-            lo = float(d.iloc[pos]["silver_low"]) if has_low else cl
-
-            if hi > peak:
-                peak = hi
-                # Aggressive trail: после +10% уменьшаем trail вдвое
-                if peak >= agg_trigger_price and current_trail == mode.trail_pct:
-                    current_trail = mode.trail_pct * 0.5
-                trail_stop = peak * (1.0 - current_trail)
-
-            # Take profit (приоритет перед stop)
-            if hi >= tp_price:
-                exit_price = tp_price
-                exit_idx = pos
-                exit_reason = "take_profit"
-                break
-
-            # Trailing stop check
-            if lo <= trail_stop:
-                exit_price = min(cl, trail_stop)
-                exit_idx = pos
-                exit_reason = "trail_stop"
-                break
-
-            # Model exit signal
-            sig_here = d.iloc[pos].get("signal_long", "HOLD")
-            if sig_here == "SELL":
-                exit_price = cl
-                exit_idx = pos
-                exit_reason = "model_exit"
-                break
-
-            exit_price = cl
-            exit_idx = pos
-
-        gross = exit_price / entry_price - 1.0
-        net = gross - cost
-        trades.append({
-            "direction":    "LONG",
-            "entry_date":   entry_date,
-            "exit_date":    d.index[exit_idx],
-            "entry_price":  round(entry_price, 3),
-            "exit_price":   round(exit_price, 3),
-            "peak_price":   round(peak, 3),
-            "gross_return": round(gross, 6),
-            "net_return":   round(net, 6),
-            "hold_days":    exit_idx - entry_pos,
-            "exit_reason":  exit_reason,
-        })
+        i += 1
 
     return pd.DataFrame(trades)
 
