@@ -2,7 +2,7 @@
   "ok": true,
   "asset": "gold",
   "date": "2026-05-15",
-  "ts_utc": "2026-05-16T12:56:16.002820+00:00",
+  "ts_utc": "2026-05-17T09:19:57.633552+00:00",
   "signal": "HOLD",
   "p_up": 0.684859791988904,
   "p_up_trend_5d": 0.5875,
@@ -15,7 +15,7 @@
   "cooldown_days": 15,
   "cooldown_remaining": 2,
   "regime": "downtrend_medium",
-  "gold_close": 4555.7998046875,
+  "gold_close": 4561.89990234375,
   "n_predictions": 30,
   "predictions_window": [
     "2026-04-06",

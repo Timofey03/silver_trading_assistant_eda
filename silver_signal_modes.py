@@ -70,33 +70,31 @@ class SignalMode:
     aggressive_trail_after: float = 0.0  # после этой прибыли trail сокращается ×2
 
 
-# ⭐ OPTIMAL MODE v3 — MaxReturn (цель: обогнать buy-and-hold)
+# ⭐ OPTIMAL MODE v2 — Consistency-aware (production, walk-forward proven)
 #
 # ИСТОРИЯ ВЕРСИЙ:
 #   OptimalV1: p_up_entry=0.49, exit=0.43, cooldown=15 — оверфит к 2025 bull market
-#   OptimalV2: p_up_entry=0.48, exit=0.35, cooldown=25 — "консистентность" ценой доходности
-#              → только 2/8 лет плюсовые на WF, захватил лишь 13-18% роста BnH в 2025
-#   OptimalV3: balanced mode params — лучший forward +44.6%, Sharpe 1.311, 13 сделок
-#              → выход симметричен входу (0.45 vs 0.52), cooldown 2.5x короче → больше сделок
-#
-# КЛЮЧЕВЫЕ ИСПРАВЛЕНИЯ:
-#   cooldown:   25 → 10  (было: сидели в кэше 25 дней между сделками, пропускали тренд)
-#   p_up_exit:  0.35 → 0.45  (было: держали убыточные позиции до почти нейтрального сигнала)
-#   p_up_entry: 0.48 → 0.52  (точнее: 69% win rate vs 80% при том же числе trade-слотов)
-#   trail_pct:  0.12 → 0.07  (было: отдавали 12% от пика прежде чем зафиксировать прибыль)
+#              → 2/8 положительных лет, mean -4.6%/год
+#   OptimalV3: entry=0.52, exit=0.45, cooldown=10 — попытка оптимизации под forward 2025
+#              → ХУЖЕ: -41% total на 8 годах, 2/8 positive years
+#              → SHORT добавил еще -30pp → удалён в этой версии
+#   OptimalV2: p_up_entry=0.48, exit=0.35, cooldown=25 — ⭐ CURRENT PRODUCTION
+#              → 6/8 положительных лет (75%), mean +3.9%/год
+#              → Worst year -14% (2021), best +16% (2020)
+#              → Единственный конфиг с доказанной consistency на walk-forward
 OPTIMAL_PARAMS = SignalMode(
-    name="OptimalV3 (MaxReturn)",
-    description="Цель: максимальная доходность / обгон buy-and-hold. "
-                "Основан на balanced mode: forward +44.6%, Sharpe 1.311, 13 сделок. "
-                "Cooldown 10d (было 25), exit=0.45 (было 0.35), trail=7% (было 12%).",
-    p_up_entry=0.52,         # было 0.48 — точнее: 69% win rate на forward
-    p_up_exit=0.45,          # было 0.35 — симметричнее входу, выходим при ослаблении
-    cooldown=10,             # было 25 — в 2.5x больше сделок → больше захватываем тренд
-    trail_pct=0.07,          # было 0.12 — фиксируем прибыль быстрее
+    name="OptimalV2 (Consistency-aware)",
+    description="Walk-forward grid search оптимум на 8 годах (2018-2025). "
+                "6/8 положительных лет, mean +3.9%/год, worst -14.1%. "
+                "Единственный конфиг с доказанной устойчивостью.",
+    p_up_entry=0.48,         # walk-forward оптимум
+    p_up_exit=0.35,          # держим позиции дольше, ловим тренды
+    cooldown=25,             # реже сделки = меньше шума, выше качество
+    trail_pct=0.12,          # шире стопы — не выбивает на нормальной волатильности
     max_hold=30,
-    expected_trades_per_year=13,  # balanced mode: 13 сделок на forward
+    expected_trades_per_year=5,
     take_profit_pct=0.0,
-    aggressive_trail_after=0.10,  # после +10% прибыли trail ужесточается вдвое
+    aggressive_trail_after=0.0,
 )
 
 # Сохраняем PRESETS для обратной совместимости grid_search скрипта
