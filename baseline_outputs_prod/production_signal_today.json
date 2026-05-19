@@ -1,27 +1,29 @@
 {
   "ok": true,
   "date": "2026-05-15",
-  "ts_utc": "2026-05-16T21:22:01.256851+00:00",
+  "ts_utc": "2026-05-19T18:46:49.955771+00:00",
   "signal": "HOLD",
-  "p_up": 0.6576023987787182,
-  "p_up_trend_5d": 0.697,
-  "p_up_trend_10d": 0.7473,
-  "p_up_trend_20d": 0.6889,
+  "p_up": 0.6039642916704447,
+  "p_up_trend_5d": 0.6975,
+  "p_up_trend_10d": 0.7231,
+  "p_up_trend_20d": 0.6817,
   "above_threshold": true,
   "below_exit": false,
-  "threshold": 0.55,
+  "threshold": 0.45,
   "exit_threshold": 0.35,
-  "cooldown_days": 5,
-  "cooldown_remaining": 2,
+  "cooldown_days": 7,
+  "cooldown_remaining": 4,
   "regime": "downtrend_high",
-  "silver_close": 77.16100311279297,
+  "silver_close": 77.5469970703125,
   "n_predictions": 30,
   "predictions_window": [
     "2026-04-06",
     "2026-05-15"
   ],
+  "drift_alert": true,
+  "drift_rate": 0.9,
   "exit_recommendation": {
     "action": "HOLD_POSITION",
-    "reason": "p_up=0.658 >= exit_threshold=0.35"
+    "reason": "p_up=0.604 >= exit_threshold=0.35"
   }
 }
