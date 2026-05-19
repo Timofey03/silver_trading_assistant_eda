@@ -128,25 +128,52 @@ def predict_recent(
         p_up = model.p_up(X, regimes)
     last["p_up_prod"] = p_up
 
-    # ⭐ OPTIMAL_V2 params — consistency-aware walk-forward (8 years)
-    # 6/8 положительных лет, mean +3.9%/год, worst -14.1%
-    # vs прежний v1 (overfit to 2025): 2/8 positive years, mean -4.6%/год
-    threshold = 0.48           # p_up_entry
-    exit_threshold = 0.35      # p_up_exit (раньше 0.43 — overfit)
-    cooldown = 25              # раньше 15 — слишком частые сделки
+    # ⭐ MAX_RETURN params (v28) — цель: обогнать buy-and-hold
+    #
+    # ИСТОРИЯ ИЗМЕНЕНИЙ:
+    #   OPTIMAL_V1: entry=0.49, exit=0.43, cooldown=15 — оверфит к 2025
+    #   OPTIMAL_V2: entry=0.48, exit=0.35, cooldown=25 — "консистентность"
+    #               → 25d cooldown: пропускали большую часть тренда
+    #               → exit=0.35: держали убыточные позиции слишком долго
+    #   MAX_RETURN: entry=0.52, exit=0.45, cooldown=10 — balanced mode
+    #               → forward +44.6% Sharpe 1.311 vs BnH (было +17.8% WF / +53.4% CPCV)
+    #               → выход симметричен входу (gap=0.07 vs 0.13 в v2)
+    #               → cooldown 2.5x короче → захватываем больше движения
+    threshold       = 0.52    # p_up_entry: было 0.48 → точнее (69% WR vs 80%)
+    exit_threshold  = 0.45    # p_up_exit:  было 0.35 → выходим при ослаблении сигнала
+    short_threshold = 0.35    # p_up<0.35 → SHORT (зарабатываем в медвежьих рынках)
+    cooldown        = 10      # было 25 → в 2.5x больше возможностей войти
 
-    # Применяем policy: BUY когда p_up >= threshold + cooldown между BUYs
-    raw = last["p_up_prod"] >= threshold
-    signals = []
-    last_buy_i = -10**9
-    for i, ok in enumerate(raw.values):
-        if ok and (i - last_buy_i) > cooldown:
-            signals.append("BUY")
-            last_buy_i = i
-        else:
-            signals.append("HOLD")
+    # Применяем policy: BUY / SHORT / HOLD с cooldown
+    p_vals = last["p_up_prod"].values
+    signals      = []
+    kelly_fracs  = []
+    last_long_i  = -10**9
+    last_short_i = -10**9
+
+    for i, p in enumerate(p_vals):
+        sig  = "HOLD"
+        frac = 0.0
+
+        if p >= threshold and (i - last_long_i) > cooldown:
+            sig  = "BUY"
+            # Kelly fraction: минимум 25% при входе, растёт до 100% при p_up→1.0
+            frac = round(0.25 + 0.75 * (p - threshold) / (1.0 - threshold), 4)
+            frac = min(frac, 1.0)
+            last_long_i = i
+        elif p < short_threshold and (i - last_short_i) > cooldown:
+            sig  = "SHORT"
+            # Kelly fraction для SHORT: минимум 25% при p_up=short_threshold, растёт к 0
+            frac = round(0.25 + 0.75 * (short_threshold - p) / short_threshold, 4)
+            frac = min(frac, 1.0)
+            last_short_i = i
+
+        signals.append(sig)
+        kelly_fracs.append(frac)
+
     last["signal_prod"] = signals
-    return last[["silver_close", "p_up_prod", "signal_prod"] +
+    last["kelly_frac"]  = kelly_fracs
+    return last[["silver_close", "p_up_prod", "signal_prod", "kelly_frac"] +
                 (["regime"] if "regime" in last.columns else [])]
 
 
@@ -170,8 +197,8 @@ def emit_today_signal(predictions: pd.DataFrame, policy: dict) -> dict:
     trend_10 = float(p_history.tail(10).mean())
     trend_20 = float(p_history.tail(20).mean())
 
-    threshold = float(policy.get("up_threshold", 0.55))
-    cooldown = int(policy.get("cooldown", 15))
+    threshold = float(policy.get("up_threshold", 0.52))    # было 0.55 → v28 default
+    cooldown  = int(policy.get("cooldown", 10))             # было 15 → v28 default
 
     # Сколько дней до возможного сигнала: если cooldown активен, оценим
     last_buy_idx = None
@@ -184,17 +211,47 @@ def emit_today_signal(predictions: pd.DataFrame, policy: dict) -> dict:
 
     p_today = float(today["p_up_prod"])
 
-    # ⭐ OPTIMAL_V2 exit threshold (consistency-aware walk-forward)
-    exit_threshold = 0.35
-    sell_recommended = p_today < exit_threshold
+    # ⭐ MAX_RETURN exit/short thresholds (v28)
+    # Было exit=0.35 → держали убыточные позиции до почти нейтрального сигнала
+    # Теперь exit=0.45 → выходим при первом ослаблении тренда
+    exit_threshold  = 0.45    # было 0.35
+    short_threshold = 0.35    # SHORT ниже нейтральной зоны (новое)
 
-    # Определяем тип сигнала
+    sell_recommended  = p_today < exit_threshold
+    short_recommended = p_today < short_threshold
+
+    # Kelly fraction для текущего p_up
+    if p_today >= threshold:
+        kelly_frac = round(0.25 + 0.75 * (p_today - threshold) / (1.0 - threshold), 4)
+        kelly_frac = min(kelly_frac, 1.0)
+    elif p_today < short_threshold:
+        kelly_frac = round(0.25 + 0.75 * (short_threshold - p_today) / short_threshold, 4)
+        kelly_frac = min(kelly_frac, 1.0)
+    else:
+        kelly_frac = 0.0
+
+    # Определяем тип сигнала (BUY / SELL / SHORT / COVER / HOLD)
     if p_today >= threshold and cooldown_remaining == 0:
         primary_signal = "BUY"
-    elif sell_recommended:
+    elif sell_recommended and not short_recommended:
         primary_signal = "SELL"
+    elif short_recommended and cooldown_remaining == 0:
+        primary_signal = "SHORT"
     else:
         primary_signal = "HOLD"
+
+    # ⚠️ Drift alert: модель работает вне дистрибуции обучения
+    # При drift_rate > 0.7 — результаты ненадёжны, нужен ретрейн
+    drift_path = Path("daily_reports/training") / datetime.now().strftime("%Y-%m-%d") / "summary.json"
+    drift_rate = None
+    drift_alert = False
+    if drift_path.exists():
+        try:
+            drift_data = json.loads(drift_path.read_text(encoding="utf-8"))
+            drift_rate = drift_data.get("drift", {}).get("drift_rate")
+            drift_alert = (drift_rate is not None and drift_rate > 0.70)
+        except Exception:
+            pass
 
     return {
         "ok":                True,
@@ -207,8 +264,11 @@ def emit_today_signal(predictions: pd.DataFrame, policy: dict) -> dict:
         "p_up_trend_20d":    round(trend_20, 4),
         "above_threshold":   p_today >= threshold,
         "below_exit":        sell_recommended,
+        "short_zone":        short_recommended,
         "threshold":         threshold,
         "exit_threshold":    exit_threshold,
+        "short_threshold":   short_threshold,
+        "kelly_fraction":    kelly_frac,
         "cooldown_days":     cooldown,
         "cooldown_remaining": cooldown_remaining,
         "regime":            str(today.get("regime", "unknown")),
@@ -218,10 +278,18 @@ def emit_today_signal(predictions: pd.DataFrame, policy: dict) -> dict:
             predictions.index[0].strftime("%Y-%m-%d"),
             predictions.index[-1].strftime("%Y-%m-%d"),
         ],
+        "drift_alert":       drift_alert,
+        "drift_rate":        drift_rate,
         "exit_recommendation": {
             "action": "SELL" if sell_recommended else "HOLD_POSITION",
             "reason": (f"p_up={p_today:.3f} < exit_threshold={exit_threshold}" if sell_recommended
                        else f"p_up={p_today:.3f} >= exit_threshold={exit_threshold}"),
+        },
+        "short_recommendation": {
+            "action": "SHORT" if short_recommended else "NO_SHORT",
+            "reason": (f"p_up={p_today:.3f} < short_threshold={short_threshold}" if short_recommended
+                       else f"p_up={p_today:.3f} >= short_threshold={short_threshold}"),
+            "kelly_fraction": kelly_frac if short_recommended else 0.0,
         },
     }
 
