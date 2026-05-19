@@ -201,13 +201,21 @@ def compute_metrics(trades: pd.DataFrame, label: str = "") -> dict:
 
     rets = seq["net_return"].astype(float).values if not seq.empty else np.array([])
     sharpe_per, skew, kurt = sharpe_stats(rets) if len(rets) >= 4 else (float("nan"), 0, 3)
-    psr = probabilistic_sharpe_ratio(sharpe_per, len(rets), skew, kurt, 0.0) \
-        if not np.isnan(sharpe_per) else float("nan")
-    dsr = deflated_sharpe_ratio(
-        sharpe_per, len(rets), n_trials=8,   # 8 walk-forward periods
-        sharpe_variance=0.5 * (sharpe_per**2 + 1e-6),
-        skew=skew, kurt=kurt,
-    ) if not np.isnan(sharpe_per) else float("nan")
+    # PSR/DSR: sqrt внутри формулы может уйти в минус при малом n_obs + отриц. Sharpe
+    # → ловим ValueError и возвращаем nan вместо краша
+    try:
+        psr = probabilistic_sharpe_ratio(sharpe_per, len(rets), skew, kurt, 0.0) \
+            if not np.isnan(sharpe_per) else float("nan")
+    except (ValueError, ZeroDivisionError):
+        psr = float("nan")
+    try:
+        dsr = deflated_sharpe_ratio(
+            sharpe_per, len(rets), n_trials=8,
+            sharpe_variance=0.5 * (sharpe_per**2 + 1e-6),
+            skew=skew, kurt=kurt,
+        ) if not np.isnan(sharpe_per) else float("nan")
+    except (ValueError, ZeroDivisionError):
+        dsr = float("nan")
 
     return {
         "label":         label,
