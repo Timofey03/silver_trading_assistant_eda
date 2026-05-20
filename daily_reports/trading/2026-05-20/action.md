@@ -17,13 +17,13 @@
 ```
 === Sandbox портфель ===
   Account ID: df3d7a77-3e75-4274-8467-fe08085256ff
-  Total:      1,983,022.55 RUB
+  Total:      1,983,379.55 RUB
   Shares:     0.00 RUB
   Bonds:      0.00 RUB
   ETF:        0.00 RUB
   Currencies: 1,099,396.55 RUB
-  Futures:    883,626.00 RUB
-  Expected yield: {'units': '80', 'nano': 274800000}
+  Futures:    883,983.00 RUB
+  Expected yield: {'units': '80', 'nano': 307200000}
   Positions: 2
     - currency figi=RUB000UTSTOM qty=1099396 avg=1
     - futures figi=FSLVRUB00000 qty=51 avg=197
