@@ -1,14 +1,15 @@
 # Silver Trading Assistant — Daily Reports Index
 
-**Last updated**: 2026-05-20T21:00:40.285566+00:00
+**Last updated**: 2026-05-21T08:32:07.312385+00:00
 
 ## Latest
 
-- 📊 [Сегодняшний training report](training/2026-05-20/summary.md)
-- 💰 [Сегодняшнее торговое действие](trading/2026-05-20/action.md)
+- 📊 [Сегодняшний training report](training/2026-05-21/summary.md)
+- 💰 [Сегодняшнее торговое действие](trading/2026-05-21/action.md)
 
 ## История training reports
 
+- [2026-05-21](training/2026-05-21/summary.md)
 - [2026-05-20](training/2026-05-20/summary.md)
 - [2026-05-19](training/2026-05-19/summary.md)
 - [2026-05-18](training/2026-05-18/summary.md)
@@ -18,6 +19,7 @@
 
 ## История trading actions
 
+- [2026-05-21](trading/2026-05-21/action.md)
 - [2026-05-20](trading/2026-05-20/action.md)
 - [2026-05-19](trading/2026-05-19/action.md)
 - [2026-05-18](trading/2026-05-18/action.md)
