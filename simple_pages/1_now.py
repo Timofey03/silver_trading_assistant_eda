@@ -58,6 +58,20 @@ st.caption(
 if signal.get("is_stale"):
     st.warning(signal.get("stale_reason", "⚠ Данные устарели"))
 
+# Бейдж: action vs info (если есть метаданные дедупликации)
+if signal.get("alert_type") == "info" and signal.get("is_repeat"):
+    prev_sig = signal.get("previous_signal", "—")
+    st.info(
+        f"ℹ **Сигнал не изменился** — это повторное уведомление дня (предыдущий: {prev_sig}). "
+        f"Если ты уже отреагировал утром — повторно ничего делать не нужно."
+    )
+elif signal.get("alert_type") == "action" and signal.get("previous_signal"):
+    prev_sig = signal.get("previous_signal", "—")
+    new_sig = signal.get("signal", "—")
+    st.success(
+        f"📢 **НОВЫЙ СИГНАЛ:** {prev_sig} → **{new_sig}** — действовать сейчас."
+    )
+
 
 # =============================================================================
 # СОСТОЯНИЕ 1: Есть открытая позиция

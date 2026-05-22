@@ -233,6 +233,90 @@ def generate_today_signal() -> dict:
 
 
 # =============================================================================
+# Signal deduplication — определяем action vs info
+# =============================================================================
+def find_previous_signal() -> dict | None:
+    """Найти последний сохранённый E3b сигнал (любого дня, любого времени).
+
+    Returns:
+        dict с полями `signal`, `date`, `report_dir`, `report_time` или None.
+    """
+    trading_root = REPORTS_DIR / "trading"
+    if not trading_root.exists():
+        return None
+
+    # Ищем все signal*.json во всех папках, сортируем по timestamp файла
+    candidates = []
+    for day_dir in trading_root.iterdir():
+        if not day_dir.is_dir():
+            continue
+        # latest.json (= signal.json) + все signal_HHMMSS.json
+        for f in day_dir.glob("signal*.json"):
+            try:
+                mtime = f.stat().st_mtime
+                data = json.loads(f.read_text(encoding="utf-8"))
+                candidates.append({
+                    "mtime": mtime,
+                    "path": f,
+                    "day_dir": day_dir.name,
+                    "data": data,
+                })
+            except Exception:
+                continue
+
+    if not candidates:
+        return None
+
+    # Самый новый по mtime
+    latest = max(candidates, key=lambda c: c["mtime"])
+    return {
+        "signal":      latest["data"].get("signal"),
+        "date":        latest["data"].get("date"),
+        "p_up":        latest["data"].get("p_up"),
+        "report_dir":  latest["day_dir"],
+        "filename":    latest["path"].name,
+    }
+
+
+def classify_alert(new_signal: str, prev: dict | None) -> dict:
+    """Определить тип уведомления: action (изменение) или info (повтор)."""
+    if prev is None:
+        return {
+            "alert_type":      "action",
+            "is_repeat":       False,
+            "signal_changed":  True,
+            "previous_signal": None,
+            "previous_dir":    None,
+            "headline":        "📢 ПЕРВЫЙ СИГНАЛ",
+            "explanation":     "Первое уведомление от E3b — модель начала работу.",
+        }
+
+    prev_signal = prev.get("signal")
+    if new_signal == prev_signal:
+        return {
+            "alert_type":      "info",
+            "is_repeat":       True,
+            "signal_changed":  False,
+            "previous_signal": prev_signal,
+            "previous_dir":    prev.get("report_dir"),
+            "headline":        "ℹ Сигнал не изменился",
+            "explanation":     (
+                f"Сигнал «{new_signal}» уже был выдан в {prev.get('report_dir', '—')}. "
+                f"Если уже отреагировал — повторно ничего делать не нужно."
+            ),
+        }
+    return {
+        "alert_type":      "action",
+        "is_repeat":       False,
+        "signal_changed":  True,
+        "previous_signal": prev_signal,
+        "previous_dir":    prev.get("report_dir"),
+        "headline":        f"📢 НОВЫЙ СИГНАЛ: {prev_signal} → {new_signal}",
+        "explanation":     f"Модель сменила сигнал с «{prev_signal}» на «{new_signal}».",
+    }
+
+
+# =============================================================================
 # Step 4: Save reports
 # =============================================================================
 def save_training_report(metrics: dict) -> None:
@@ -265,20 +349,40 @@ def save_training_report(metrics: dict) -> None:
     print(f"  ✅ Training report → {TRAINING_DIR}")
 
 
-def save_trading_report(signal_info: dict) -> None:
-    """Отчёт торгового сигнала на сегодня."""
-    path = TRADING_DIR / "signal.json"
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(signal_info, f, indent=2, default=str)
+def save_trading_report(signal_info: dict, alert: dict) -> dict:
+    """Отчёт торгового сигнала с timestamp-версионированием.
+
+    Сохраняет три файла:
+      - signal.json          — latest (для Streamlit)
+      - signal_HHMMSS.json   — каждый запуск своя версия (история дня)
+      - summary.txt          — человекочитаемый
+    """
+    run_time = datetime.now(timezone.utc).strftime("%H%M%S")
+    enriched = {**signal_info, **alert, "run_time_utc": run_time, "run_date_utc": TODAY}
+
+    # latest (для UI)
+    latest_path = TRADING_DIR / "signal.json"
+    with open(latest_path, "w", encoding="utf-8") as f:
+        json.dump(enriched, f, indent=2, default=str)
+
+    # timestamped — для истории
+    stamp_path = TRADING_DIR / f"signal_{run_time}.json"
+    with open(stamp_path, "w", encoding="utf-8") as f:
+        json.dump(enriched, f, indent=2, default=str)
 
     summary = TRADING_DIR / "summary.txt"
     with open(summary, "w", encoding="utf-8") as f:
-        f.write(f"E3b Daily Trading Signal — {TODAY}\n")
+        f.write(f"E3b Daily Trading Signal — {TODAY} @ {run_time} UTC\n")
         f.write("=" * 50 + "\n\n")
+        f.write(f"  Alert type:     {alert.get('alert_type', '—').upper()}\n")
+        f.write(f"  {alert.get('headline', '')}\n")
+        f.write(f"  {alert.get('explanation', '')}\n\n")
         f.write(f"  Date:           {signal_info.get('date', '—')}\n")
         f.write(f"  Silver close:   ${signal_info.get('close', 0):.2f}\n")
         f.write(f"  Probability:    p_up = {signal_info.get('p_up', 0):.4f}\n")
-        f.write(f"  Signal:         {signal_info.get('signal', '—')}\n\n")
+        f.write(f"  Current signal: {signal_info.get('signal', '—')}\n")
+        f.write(f"  Previous:       {alert.get('previous_signal', '—')} "
+                f"({alert.get('previous_dir', '—')})\n\n")
         f.write(f"Trade execution params:\n")
         f.write(f"  Entry threshold:  {signal_info.get('entry_threshold', 0.48)}\n")
         f.write(f"  Exit threshold:   {signal_info.get('exit_threshold', 0.35)}\n")
@@ -288,7 +392,8 @@ def save_trading_report(signal_info: dict) -> None:
         f.write(f"Model params:\n")
         f.write(f"  Features used:    {signal_info.get('n_features_used', 0)}\n")
         f.write(f"  Train samples:    {signal_info.get('train_samples', 0)}\n")
-    print(f"  ✅ Trading report → {TRADING_DIR}")
+    print(f"  ✅ Trading report → {TRADING_DIR}/signal_{run_time}.json (latest=signal.json)")
+    return enriched
 
 
 # =============================================================================
@@ -309,17 +414,37 @@ def send_telegram(signal_info: dict, metrics: dict) -> None:
         sig = signal_info.get("signal", "—")
         sig_emoji = {"BUY": "🟢", "SELL": "🔴", "HOLD": "🟡"}.get(sig, "⚪")
         sig_date = str(signal_info.get('date', '—')).split('T')[0]
-        text = (
-            f"{sig_emoji} <b>E3b Daily Signal</b>\n\n"
-            f"Date: <code>{sig_date}</code>\n"
-            f"Silver: <code>${signal_info.get('close', 0):.2f}</code>\n"
-            f"Probability: <code>{signal_info.get('p_up', 0):.3f}</code>\n"
-            f"Signal: <b>{sig}</b>\n\n"
-            f"<i>Walk-forward metrics:</i>\n"
-            f"Sharpe <code>{metrics.get('sharpe', 0):.2f}</code> · "
-            f"Win <code>{metrics.get('win_rate', 0)*100:.0f}%</code> · "
-            f"Trades <code>{metrics.get('n_trades', 0)}</code>"
-        )
+        alert_type = signal_info.get("alert_type", "action")
+        is_repeat = signal_info.get("is_repeat", False)
+
+        if is_repeat:
+            # === ИНФОРМАЦИОННОЕ напоминание ===
+            text = (
+                f"ℹ <b>E3b статус</b> · {sig_emoji} {sig}\n"
+                f"<i>Сигнал не изменился — действий не требуется</i>\n\n"
+                f"Дата:    <code>{sig_date}</code>\n"
+                f"Цена:    <code>${signal_info.get('close', 0):.2f}</code>\n"
+                f"p_up:    <code>{signal_info.get('p_up', 0):.3f}</code>\n\n"
+                f"<i>Если ты уже отреагировал на утреннее уведомление — "
+                f"повторно ничего делать не нужно.</i>"
+            )
+        else:
+            # === ACTIONABLE сигнал ===
+            headline = signal_info.get("headline", "📢 НОВЫЙ СИГНАЛ")
+            prev = signal_info.get("previous_signal")
+            change_line = (f"<b>Изменение:</b> {prev} → <b>{sig}</b>"
+                          if prev else f"<b>Сигнал:</b> {sig}")
+            text = (
+                f"{sig_emoji} <b>{headline}</b>\n\n"
+                f"{change_line}\n\n"
+                f"Дата:    <code>{sig_date}</code>\n"
+                f"Цена:    <code>${signal_info.get('close', 0):.2f}</code>\n"
+                f"p_up:    <code>{signal_info.get('p_up', 0):.3f}</code>\n\n"
+                f"<i>Walk-forward metrics:</i>\n"
+                f"Sharpe <code>{metrics.get('sharpe', 0):.2f}</code> · "
+                f"Win <code>{metrics.get('win_rate', 0)*100:.0f}%</code> · "
+                f"Trades <code>{metrics.get('n_trades', 0)}</code>"
+            )
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         data = urllib.parse.urlencode({
             "chat_id": chat_id,
@@ -373,17 +498,31 @@ def main():
     # Step 3
     signal_info = generate_today_signal()
 
+    # Step 3.5: дедупликация — определяем action vs info
+    print("\n" + "=" * 70)
+    print("[3.5] CHECK FOR REPEAT SIGNAL")
+    print("=" * 70)
+    new_signal_value = signal_info.get("signal", "—")
+    prev = find_previous_signal()
+    if prev:
+        print(f"  Previous signal: {prev['signal']} ({prev['report_dir']}/{prev['filename']})")
+    else:
+        print("  No previous signal found (first run)")
+    alert = classify_alert(new_signal_value, prev)
+    print(f"  Alert type:      {alert['alert_type'].upper()} ({'repeat' if alert['is_repeat'] else 'change'})")
+    print(f"  Headline:        {alert['headline']}")
+
     # Step 4
     print("\n" + "=" * 70)
     print("[4/4] SAVE REPORTS")
     print("=" * 70)
     save_training_report(metrics)
-    save_trading_report(signal_info)
+    enriched_signal = save_trading_report(signal_info, alert)
 
-    # Telegram
+    # Telegram (с правильным action/info форматом)
     if not args.no_telegram:
         print("\n  Sending Telegram notification...")
-        send_telegram(signal_info, metrics)
+        send_telegram(enriched_signal, metrics)
 
     print("\n" + "=" * 70)
     print("DAILY E3b RUN COMPLETE ✅")
