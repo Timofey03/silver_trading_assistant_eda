@@ -1,0 +1,29 @@
+{
+  "baseline": {
+    "entry_threshold": 0.48,
+    "cooldown_days": 25,
+    "n_trades": 6,
+    "total_return": 0.1835,
+    "sharpe": 2.173,
+    "max_dd": -0.0015,
+    "win_rate": 0.833
+  },
+  "best_by_sharpe": {
+    "entry_threshold": 0.55,
+    "cooldown_days": 20,
+    "n_trades": 7,
+    "total_return": 0.318,
+    "sharpe": 3.459,
+    "max_dd": -0.0013,
+    "win_rate": 0.857
+  },
+  "best_by_return": {
+    "entry_threshold": 0.4,
+    "cooldown_days": 20,
+    "n_trades": 8,
+    "total_return": 0.3402,
+    "sharpe": 2.684,
+    "max_dd": -0.0216,
+    "win_rate": 0.75
+  }
+}
