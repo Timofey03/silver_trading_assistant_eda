@@ -226,14 +226,80 @@ def load_production_predictions() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=60)
+def load_e3b_signal() -> dict | None:
+    """Загрузить последний доступный E3b daily signal.
+
+    Источник: `daily_reports/e3b/trading/YYYY-MM-DD/signal.json`
+    Берём последний по дате каталог.
+    """
+    e3b_root = REPO_ROOT / "daily_reports" / "e3b" / "trading"
+    if not e3b_root.exists():
+        return None
+    dirs = sorted([d for d in e3b_root.iterdir() if d.is_dir()],
+                  reverse=True)
+    for d in dirs:
+        sig_file = d / "signal.json"
+        if sig_file.exists():
+            try:
+                data = json.loads(sig_file.read_text(encoding="utf-8"))
+                data["report_dir"] = d.name
+                return data
+            except Exception:
+                continue
+    return None
+
+
+@st.cache_data(ttl=60)
 def get_current_signal() -> dict:
     """
     Возвращает свежий сигнал.
 
-    Приоритет: production_inference → CPCV fallback.
+    Приоритет: E3b daily → V25 production_inference → CPCV fallback.
     Cooldown пересчитывается ДИНАМИЧЕСКИ на основе сегодняшней даты.
     """
     from datetime import datetime as _dt
+
+    # ===== E3b (новая модель, приоритет) =====
+    e3b = load_e3b_signal()
+    if e3b is not None:
+        sig_date = pd.Timestamp(e3b.get("date"))
+        today = pd.Timestamp(_dt.now().date())
+        days_passed = max(0, (today - sig_date).days)
+
+        signal = e3b.get("signal", "HOLD")
+        p_up = float(e3b.get("p_up", 0))
+        threshold = float(e3b.get("entry_threshold", 0.48))
+        exit_threshold = float(e3b.get("exit_threshold", 0.35))
+
+        # Stale-проверка: если данные старше 5 дней — HOLD + warning
+        is_stale = days_passed >= 5
+
+        return {
+            "source":             "e3b_daily",
+            "signal":             signal if not is_stale else "HOLD",
+            "signal_original":    signal,
+            "signal_short":       "HOLD",
+            "p_up":               p_up,
+            "above_threshold":    p_up >= threshold,
+            "threshold":          threshold,
+            "exit_threshold":     exit_threshold,
+            "cooldown_remaining": int(e3b.get("cooldown_days", 25)),
+            "signal_date":        sig_date,
+            "today_date":         today,
+            "data_age_days":      days_passed,
+            "is_stale":           is_stale,
+            "stale_reason":       (f"⚠ Сигнал старше {days_passed} дней. "
+                                   f"Запустите retraining (daily_e3b.py) или дождитесь "
+                                   f"автоматического обновления.")
+                                  if is_stale else None,
+            "current_date":       sig_date,
+            "current_price":      float(e3b.get("close", 0)),
+            "regime":             "—",
+            "report_dir":         e3b.get("report_dir"),
+            "model_features":     int(e3b.get("n_features_used", 30)),
+        }
+
+    # ===== V25 (legacy fallback) =====
     prod = load_production_signal()
     d = load_decisions()
 
