@@ -1,0 +1,76 @@
+name: Daily E3b Silver Assistant
+
+on:
+  schedule:
+    # Утренний запуск: 08:00 MSK = 05:00 UTC
+    - cron: '0 5 * * 1-5'
+    # Дневной запуск: 14:00 MSK = 11:00 UTC
+    - cron: '0 11 * * 1-5'
+    # Вечерний запуск: 22:00 MSK = 19:00 UTC
+    - cron: '0 19 * * 1-5'
+  workflow_dispatch:            # ручной запуск из UI GitHub
+
+permissions:
+  contents: write               # нужно чтобы коммитить отчёты обратно
+
+jobs:
+  daily-e3b-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install python-dotenv lightgbm catboost yfinance pyarrow seaborn
+
+      - name: Run E3b daily pipeline (refresh + walk-forward + signal)
+        env:
+          # Telegram notifications (опционально)
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID:   ${{ secrets.TG_CHAT_ID }}
+        run: |
+          python scripts/daily_e3b.py
+        continue-on-error: true   # отчёты всё равно сохранятся
+
+      - name: Commit updated data and reports
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Обновлённые данные + отчёты + walk-forward результаты
+          git add daily_reports/e3b/ \
+                  data/multi_asset/metals/ \
+                  data/multi_asset/macro/ \
+                  data/multi_asset/features/ \
+                  data/multi_asset/labels/ \
+                  data/multi_asset/reports/ \
+                  baseline_outputs_multiasset/e3b_adaptive/ || true
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Daily E3b run $(date -u +%Y-%m-%d) [skip ci]"
+            git push
+          fi
+
+      - name: Upload reports as artifact (хранятся 90 дней)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e3b-daily-reports-${{ github.run_id }}
+          path: daily_reports/e3b/
+          retention-days: 90
