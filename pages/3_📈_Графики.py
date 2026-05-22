@@ -110,21 +110,58 @@ else:
 
 
 # =============================================================================
-# Equity curve
+# Equity curve — переключатель E3b / V25 + маркеры BUY/SELL
 # =============================================================================
 
 st.markdown("---")
 st.markdown("### 📈 Equity curve — наша стратегия vs Buy-and-Hold")
 
-trades = load_trades("forward")
-fwd_full = full[full["split"] == "forward"] if "split" in full.columns else full
-bnh = fwd_full["silver_close"] if not fwd_full.empty else pd.Series(dtype=float)
+# Выбор модели
+chart_model_g = st.radio(
+    "Модель для графика:",
+    options=["🏆 E3b (новая, диплом)", "🟢 V25 (legacy)"],
+    horizontal=True,
+    help=(
+        "**E3b** — walk-forward 10.3 года (2015-2025), 48 сделок. Реалистичные результаты.\n\n"
+        "**V25** — forward test только 1.3 года (2025-2026 bull rally), 24-38 сделок. "
+        "Compound 7.6x не воспроизводим в обычных условиях."
+    ),
+    key="chart_model_graphs",
+)
+
+if chart_model_g.startswith("🏆"):
+    # E3b
+    e3b_path = ROOT / "baseline_outputs_multiasset" / "e3b_adaptive" / "trades.csv"
+    if e3b_path.exists():
+        trades = pd.read_csv(e3b_path)
+        trades["entry_date"] = pd.to_datetime(trades["entry_date"])
+        trades["exit_date"] = pd.to_datetime(trades["exit_date"])
+        strategy_name = "Стратегия E3b ★"
+        # BnH за E3b период
+        period_start = trades["entry_date"].min()
+        period_end = trades["exit_date"].max()
+        try:
+            from app.multi_asset.metal_loader import load_single_metal
+            silver = load_single_metal("silver")
+            bnh = silver["close"].loc[period_start:period_end]
+        except Exception:
+            bnh = pd.Series(dtype=float)
+    else:
+        trades = pd.DataFrame()
+        bnh = pd.Series(dtype=float)
+        strategy_name = "E3b"
+else:
+    trades = load_trades("forward")
+    fwd_full = full[full["split"] == "forward"] if "split" in full.columns else full
+    bnh = fwd_full["silver_close"] if not fwd_full.empty else pd.Series(dtype=float)
+    strategy_name = "Стратегия V25"
 
 if not trades.empty:
-    fig = equity_curve(trades, bnh)
+    fig = equity_curve(trades, bnh, strategy_name=strategy_name, show_buy_sell_markers=True)
     st.plotly_chart(fig, use_container_width=True)
+    st.caption("🟢 BUY — момент входа в позицию · 🔴 SELL — момент выхода (наведите для деталей)")
 else:
-    st.info("Нет данных для equity curve (forward split пустой).")
+    st.info("Нет данных для equity curve.")
 
 
 # =============================================================================
