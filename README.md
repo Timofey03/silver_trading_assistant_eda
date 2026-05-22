@@ -2,6 +2,8 @@
 
 ML-помощник для торговли серебром (SI=F / SLVRUBF) с полным циклом: feature engineering → ML signals → risk-aware execution → paper trading через Tinkoff Invest API.
 
+**Финальная модель E3b** (multi-asset + adaptive barriers, Sharpe 0.53, Win 69%) интегрирована в production-инфраструктуру с автоматическим переобучением через GitHub Actions 3 раза в день и Telegram-уведомлениями с дедупликацией.
+
 > ⚠️ **Это исследовательский проект.** Не финансовый совет. Все цифры backtest в реальных деньгах могут быть значительно ниже из-за market impact, slippage и режимных сдвигов. Перед любыми реальными вложениями — минимум 6 месяцев paper trading.
 
 ---
@@ -11,49 +13,118 @@ ML-помощник для торговли серебром (SI=F / SLVRUBF) с
 ```bash
 # 1. Установить зависимости
 pip install -r requirements.txt
+pip install lightgbm catboost yfinance pyarrow seaborn  # для E3b pipeline
 
-# 2. Создать .env с Tinkoff sandbox токеном (см. .env.example)
-#    Токен получить: https://www.tinkoff.ru/invest/settings (sandbox-only!)
+# 2. Создать .env (см. .env.example):
+#    TINKOFF_TOKEN=...     — sandbox-only (https://www.tinkoff.ru/invest/settings)
+#    TG_BOT_TOKEN=...      — для Telegram-уведомлений (опционально)
+#    TG_CHAT_ID=...
 
-# 3. Запустить веб-приложение
+# 3. Запустить ОДНО из двух приложений (см. ниже)
+```
+
+## 📱 Два Streamlit-приложения
+
+В проекте **два независимых веб-интерфейса** для разных пользователей:
+
+### A. `dashboard_app.py` — полнофункциональная панель
+
+Для торгующих через Tinkoff с подробной аналитикой и paper trading.
+
+```bash
 streamlit run dashboard_app.py
 # → http://localhost:8501
 ```
 
-## 📱 Веб-приложение (Streamlit)
+| Экран | Что показывает |
+|---|---|
+| 🏠 **Главная** | Карточка сигнала E3b/V25 с метой источника, KPI, equity curve |
+| 💰 **Портфель** | Live баланс Tinkoff, donut, открытые позиции, история ордеров |
+| 📊 **Сигналы** | Win rate, P&L каждой сделки, фильтры |
+| 📈 **Графики** | Candlestick + signals overlay + drawdown |
+| 🤖 **Модель** | DSR/PSR/Sharpe, bootstrap CI, drift detection |
+| ⚙ **Настройки** | Tinkoff conn, расписание, гейты, Telegram alerts |
+| 🧮 **Калькулятор** | Расчёт лотов от капитала |
 
-Полноценный пользовательский UI с 5 экранами:
+### B. `simple_app.py` — облегчённая версия для конечного пользователя
+
+Для непрофессионалов и защиты диплома. Минимум терминов, акцент на действиях.
+
+```bash
+streamlit run simple_app.py --server.port 8502
+# → http://localhost:8502
+```
 
 | Экран | Что показывает |
 |---|---|
-| 🏠 **Главная** | Большая карточка ⚪/🟢/🔴 с сигналом, KPI, equity curve |
-| 💰 **Портфель** | Live баланс Tinkoff, donut chart, открытые позиции, история ордеров |
-| 📊 **Сигналы** | Win rate, P&L каждой сделки, фильтры по периоду/типу |
-| 📈 **Графики** | Интерактивный candlestick + signals overlay + drawdown |
-| 🤖 **Модель** | Светофор DSR/PSR/Sharpe, bootstrap CI, drift detection |
-| ⚙ **Настройки** | Tinkoff conn, расписание, гейты, Telegram alerts |
+| 📍 **Сейчас** | Что делать сейчас (BUY/HOLD/SELL) с метками E3b и action/info |
+| 💼 **Мои сделки** | Локальная история + бэктест (E3b / V25 / базовая WF) |
+| 🧮 **Калькулятор** | Доходность по моделям с реальной статистикой |
+| 📊 **Как работал** | 3 блока: E3b (winner) + V25 + базовая walk-forward |
+| 🔬 **Эволюция модели** | Все 6 экспериментов E1-E4 с графиками |
+| ⚙ **Настройки** | Локальный капитал + Telegram credentials |
 
-**Запуск**:
+### Запуск обоих параллельно
+
 ```bash
-streamlit run dashboard_app.py
+# Терминал 1:
+streamlit run dashboard_app.py                    # → :8501
+
+# Терминал 2:
+streamlit run simple_app.py --server.port 8502    # → :8502
 ```
 
 **Деплой в облако**: см. [docs/HOSTING.md](docs/HOSTING.md) → Streamlit Cloud (бесплатно, 5 минут).
 
 ## 🛠 CLI инструменты
 
+### Production daily run (E3b — финальная модель)
+
 ```bash
-# Переобучить модель v25 CPCV
-python silver_assistant_v25_cpcv.py
+# Полный цикл: refresh data → retrain → signal → Telegram
+python scripts/daily_e3b.py
 
-# Paper trading в Tinkoff sandbox
-python silver_paper_tinkoff.py --setup --initial-rub 1000000
-python silver_paper_tinkoff.py --find SLVRUBF
-python silver_paper_tinkoff.py --live --ticker SLVRUBF
+# Только инференс без переобучения
+python scripts/daily_e3b.py --skip-training
 
-# Полный daily цикл (то, что делает GitHub Actions)
-python scripts/daily_run.py
+# Тест Telegram-нотификации
+python scripts/test_telegram_e3b.py
 ```
+
+### Multi-asset pipeline (база E3b)
+
+```bash
+# Refresh всех данных (5 металлов + FRED macro)
+python multiasset_pipeline.py --refresh
+
+# Запустить все эксперименты диплома
+python experiments/e1_baseline.py            # E1: silver-only
+python experiments/e2b_feature_selected.py   # E2b: + cross-asset + FS
+python experiments/e3_macro_adaptive.py      # E3a/b/c: + macro + adaptive
+python experiments/e4_stacking.py            # E4: stacking ensemble
+python experiments/forward_test_2025.py      # OOS forward test 2025-2026
+python experiments/visualize.py              # 7 PNG для диплома
+```
+
+### Legacy V25
+
+```bash
+python silver_assistant_v25_cpcv.py    # переобучение
+python scripts/daily_run.py             # daily run V25
+```
+
+### Paper trading через Tinkoff
+
+```bash
+python silver_paper_tinkoff.py --setup --initial-rub 1000000
+python silver_paper_tinkoff.py --live --ticker SLVRUBF
+```
+
+### Автоматизация в облаке
+
+Два workflow в `.github/workflows/`:
+- `daily.yml` — старый V25 (3× в день)
+- `daily_e3b.yml` — новый E3b с дедупликацией Telegram (action vs info)
 
 ---
 
