@@ -1,0 +1,10 @@
+{
+  "n_trades": 6,
+  "n_potential_signals": 24,
+  "blocked_by_cooldown": 18,
+  "pct_above_threshold": 0.28034682080924855,
+  "mean_p_up": 0.2828426901728675,
+  "median_p_up": 0.19783771148033596,
+  "max_p_up": 0.9546985514428491,
+  "v25_in_e3b_signals_pct": 0.2631578947368421
+}
