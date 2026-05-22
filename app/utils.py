@@ -297,6 +297,13 @@ def get_current_signal() -> dict:
             "regime":             "—",
             "report_dir":         e3b.get("report_dir"),
             "model_features":     int(e3b.get("n_features_used", 30)),
+            # Дедупликация (заполнено если signal.json содержит alert_type)
+            "alert_type":         e3b.get("alert_type"),  # "action" | "info" | None
+            "is_repeat":          bool(e3b.get("is_repeat", False)),
+            "previous_signal":    e3b.get("previous_signal"),
+            "alert_headline":     e3b.get("headline"),
+            "alert_explanation":  e3b.get("explanation"),
+            "run_time_utc":       e3b.get("run_time_utc"),
         }
 
     # ===== V25 (legacy fallback) =====

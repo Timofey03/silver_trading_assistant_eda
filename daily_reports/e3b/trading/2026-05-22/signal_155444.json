@@ -42,13 +42,13 @@
     "target_high"
   ],
   "train_samples": 3817,
-  "alert_type": "action",
-  "is_repeat": false,
-  "signal_changed": true,
-  "previous_signal": "HOLD",
+  "alert_type": "info",
+  "is_repeat": true,
+  "signal_changed": false,
+  "previous_signal": "BUY",
   "previous_dir": "2026-05-22",
-  "headline": "\ud83d\udce2 \u041d\u041e\u0412\u042b\u0419 \u0421\u0418\u0413\u041d\u0410\u041b: HOLD \u2192 BUY",
-  "explanation": "\u041c\u043e\u0434\u0435\u043b\u044c \u0441\u043c\u0435\u043d\u0438\u043b\u0430 \u0441\u0438\u0433\u043d\u0430\u043b \u0441 \u00abHOLD\u00bb \u043d\u0430 \u00abBUY\u00bb.",
-  "run_time_utc": "155516",
+  "headline": "\u2139 \u0421\u0438\u0433\u043d\u0430\u043b \u043d\u0435 \u0438\u0437\u043c\u0435\u043d\u0438\u043b\u0441\u044f",
+  "explanation": "\u0421\u0438\u0433\u043d\u0430\u043b \u00abBUY\u00bb \u0443\u0436\u0435 \u0431\u044b\u043b \u0432\u044b\u0434\u0430\u043d \u0432 2026-05-22. \u0415\u0441\u043b\u0438 \u0443\u0436\u0435 \u043e\u0442\u0440\u0435\u0430\u0433\u0438\u0440\u043e\u0432\u0430\u043b \u2014 \u043f\u043e\u0432\u0442\u043e\u0440\u043d\u043e \u043d\u0438\u0447\u0435\u0433\u043e \u0434\u0435\u043b\u0430\u0442\u044c \u043d\u0435 \u043d\u0443\u0436\u043d\u043e.",
+  "run_time_utc": "155444",
   "run_date_utc": "2026-05-22"
 }
