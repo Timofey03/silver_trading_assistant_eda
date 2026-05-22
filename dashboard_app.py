@@ -129,6 +129,16 @@ sig = get_current_signal()
 kpis = get_kpis()
 tinkoff = get_tinkoff_status()
 
+# Метка источника сигнала
+source = sig.get("source", "—")
+model_label_map = {
+    "e3b_daily":     "🏆 **E3b** (multi-asset + adaptive barriers) — финальная модель диплома",
+    "production":    "🟢 **V25 production** — legacy CPCV модель",
+    "cpcv_fallback": "🔵 **V25 CPCV fallback** — резервный источник",
+    "none":          "⚪ Сигнал не загружен",
+}
+st.info(f"Источник сигнала: {model_label_map.get(source, source)}")
+
 # Warning если данные устарели
 if sig.get("is_stale"):
     st.warning(
@@ -137,6 +147,18 @@ if sig.get("is_stale"):
         f"В sidebar нажмите **🔬 Refresh signal** чтобы получить актуальный прогноз "
         f"на сегодняшних ценах (~3-5 минут)."
     )
+
+# Бейдж дедупликации (action vs info)
+if sig.get("alert_type") == "info" and sig.get("is_repeat"):
+    prev_sig = sig.get("previous_signal", "—")
+    st.info(
+        f"ℹ **Сигнал не изменился** — это повторное уведомление дня (предыдущий: {prev_sig}). "
+        f"Если уже отреагировал утром — повторно ничего делать не нужно."
+    )
+elif sig.get("alert_type") == "action" and sig.get("previous_signal"):
+    prev_sig = sig.get("previous_signal", "—")
+    new_sig = sig.get("signal", "—")
+    st.success(f"📢 **НОВЫЙ СИГНАЛ:** {prev_sig} → **{new_sig}** — действовать сейчас.")
 
 # Большая карточка сигнала
 top_signal_badge(sig)
