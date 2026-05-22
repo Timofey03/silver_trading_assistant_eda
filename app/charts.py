@@ -53,6 +53,8 @@ def equity_curve(
     strategy_name: str = "Стратегия",
     show_buy_sell_markers: bool = True,
     tinkoff_orders: Optional[pd.DataFrame] = None,
+    current_signal: Optional[dict] = None,
+    show_range_selector: bool = True,
 ) -> go.Figure:
     """Equity curve со стрелками входа/выхода.
 
@@ -150,6 +152,64 @@ def equity_curve(
                 ),
             ))
 
+    # === Граница backtest → live (vertical line) ===
+    if not trades.empty:
+        backtest_end = pd.to_datetime(trades["exit_date"].max())
+        today = pd.Timestamp.now().normalize()
+        if (today - backtest_end).days > 7:  # есть gap
+            # Используем shape напрямую — plotly add_vline не принимает Timestamp в pandas 3
+            fig.add_shape(
+                type="line",
+                x0=backtest_end.isoformat(),
+                x1=backtest_end.isoformat(),
+                y0=0, y1=1,
+                yref="paper",
+                line=dict(dash="dash", color="#9E9E9E", width=1.5),
+            )
+            fig.add_annotation(
+                x=backtest_end.isoformat(),
+                y=1.02,
+                yref="paper",
+                text="Конец бэктеста",
+                showarrow=False,
+                font=dict(size=10, color="#9E9E9E"),
+                xanchor="left",
+            )
+
+    # === Сегодняшний live-сигнал (опционально) ===
+    if current_signal is not None:
+        sig_value = current_signal.get("signal", "—")
+        sig_date_str = current_signal.get("date") or current_signal.get("signal_date")
+        if sig_date_str:
+            try:
+                sig_date = pd.to_datetime(sig_date_str)
+                # Y-координата — берём последнюю equity если есть, иначе bnh
+                if not trades.empty:
+                    final_eq = float((1 + trades["net_return"].astype(float)).prod())
+                else:
+                    final_eq = 1.0
+                sig_emoji = {"BUY": "🟢", "SELL": "🔴", "HOLD": "🟡"}.get(sig_value, "⚪")
+                sig_color = {"BUY": "#00C853", "SELL": "#D32F2F", "HOLD": "#FFA000"}.get(sig_value, "#9E9E9E")
+                p_up_str = f"{current_signal.get('p_up', 0):.0%}"
+                fig.add_trace(go.Scatter(
+                    x=[sig_date.isoformat()], y=[final_eq],
+                    mode="markers+text",
+                    name=f"🎯 Сегодня: {sig_value}",
+                    marker=dict(color=sig_color, size=22, symbol="star",
+                                line=dict(color="white", width=3)),
+                    text=[f"{sig_emoji} {sig_value} (p={p_up_str})"],
+                    textposition="top center",
+                    textfont=dict(size=12, color=sig_color),
+                    hovertemplate=(
+                        f"<b>🎯 СИГНАЛ НА СЕГОДНЯ: {sig_value}</b><br>"
+                        f"{sig_date.date()}<br>"
+                        f"p_up: {p_up_str}<br>"
+                        f"Source: live (daily_e3b.py)<extra></extra>"
+                    ),
+                ))
+            except Exception:
+                pass
+
     # === Реальные Tinkoff ордера (опционально) ===
     if tinkoff_orders is not None and not tinkoff_orders.empty:
         # Ожидаем колонки: ts_signal, signal/direction, price
@@ -202,6 +262,33 @@ def equity_curve(
 
     fig.update_layout(**_base_layout(title))
     fig.update_yaxes(title_text="Equity (1.0 = начальный капитал)")
+
+    # === Range selector + slider (диапазон времени) ===
+    if show_range_selector:
+        fig.update_xaxes(
+            rangeselector=dict(
+                buttons=[
+                    dict(count=1, label="1М", step="month", stepmode="backward"),
+                    dict(count=3, label="3М", step="month", stepmode="backward"),
+                    dict(count=6, label="6М", step="month", stepmode="backward"),
+                    dict(count=1, label="1Г", step="year", stepmode="backward"),
+                    dict(count=3, label="3Г", step="year", stepmode="backward"),
+                    dict(count=5, label="5Л", step="year", stepmode="backward"),
+                    dict(step="all", label="Всё"),
+                ],
+                bgcolor="rgba(255,255,255,0.05)",
+                activecolor="#00BCD4",
+                bordercolor="#00BCD4",
+                borderwidth=1,
+                font=dict(color="#e0e0e0"),
+            ),
+            rangeslider=dict(visible=True, bgcolor="rgba(255,255,255,0.03)",
+                              thickness=0.05),
+            type="date",
+        )
+        # Высота больше чтобы slider не мешал
+        fig.update_layout(height=520)
+
     return fig
 
 
