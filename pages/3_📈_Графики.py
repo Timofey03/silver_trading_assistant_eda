@@ -157,9 +157,52 @@ else:
     strategy_name = "Стратегия V25"
 
 if not trades.empty:
-    fig = equity_curve(trades, bnh, strategy_name=strategy_name, show_buy_sell_markers=True)
+    # Live сигнал для E3b
+    live_sig = None
+    if chart_model_g.startswith("🏆"):
+        try:
+            from app.utils import get_current_signal
+            live_sig = get_current_signal()
+        except Exception:
+            live_sig = None
+
+    # Tinkoff ордера если есть
+    tk_orders = None
+    tk_path = ROOT / "baseline_outputs_v23" / "v23_paper_trading_log.csv"
+    if tk_path.exists():
+        try:
+            tk_orders = pd.read_csv(tk_path)
+        except Exception:
+            pass
+
+    fig = equity_curve(
+        trades, bnh,
+        strategy_name=strategy_name,
+        show_buy_sell_markers=True,
+        tinkoff_orders=tk_orders,
+        current_signal=live_sig,
+        show_range_selector=True,
+    )
     st.plotly_chart(fig, use_container_width=True)
-    st.caption("🟢 BUY — момент входа в позицию · 🔴 SELL — момент выхода (наведите для деталей)")
+
+    st.caption(
+        "🟢 BUY — вход в позицию в бэктесте · 🔴 SELL — выход в бэктесте · "
+        "🎯 Звезда — live сигнал на сегодня · "
+        "💎 Diamond — реальный Tinkoff sandbox ордер · "
+        "Используйте кнопки 1М/3М/6М/1Г/3Г/5Л/Всё под графиком"
+    )
+
+    with st.expander("ℹ️ Это бэктест или live торговля?"):
+        st.markdown("""
+**На графике — backtest (историческая симуляция), а не live портфель.**
+
+Зелёная линия E3b ★ показывает «что было бы», если бы модель торговала
+на исторических данных 2015–2025. Помощник **не торгует автоматически
+реальными деньгами** — он только генерирует сигналы каждый день.
+
+Для текущего сигнала на сегодня — смотрите ⭐ звезду на графике или
+большой блок на странице **🏠 Главная**.
+        """)
 else:
     st.info("Нет данных для equity curve.")
 
