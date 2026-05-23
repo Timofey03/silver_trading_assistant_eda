@@ -26,8 +26,14 @@ class TradeConfig:
     max_hold_days: int = 30            # максимальное удержание
     cooldown_days: int = 25            # пауза между сделками
     commission_pct: float = 0.001      # 0.1% за сделку (round-trip 0.2%)
+    spread_pct: float = 0.0            # bid-ask spread (0.002 = 0.2% on entry/exit)
+    slippage_pct: float = 0.0          # market impact per trade (0.001 = 0.1%)
     direction_label: int = 1           # какой класс считаем "вверх"
                                        # (1 = TP в triple-barrier)
+    enable_short: bool = False         # позволять short когда p_short высока
+    short_entry_threshold: float = 0.48  # p_-1 порог для входа в short
+    vol_target_annual: float = 0.0     # 0 = выкл; иначе target annualized vol (0.15 = 15%)
+    vol_lookback: int = 20             # окно для realized vol
 
 
 @dataclass
@@ -123,7 +129,9 @@ def simulate_trades(
 
             if exit_reason is not None:
                 gross_return = exit_price / entry_price - 1
-                net_return = gross_return - 2 * config.commission_pct
+                # Realistic costs: commission + spread + slippage on both entry & exit
+                total_cost = 2 * (config.commission_pct + config.spread_pct + config.slippage_pct)
+                net_return = gross_return - total_cost
                 trades.append(Trade(
                     entry_date=dates[entry_idx],
                     exit_date=date,
