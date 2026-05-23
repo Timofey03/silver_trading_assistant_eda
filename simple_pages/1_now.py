@@ -49,14 +49,45 @@ model_label_map = {
 }
 model_label = model_label_map.get(source, source)
 
-st.caption(
-    f"Сегодня {today_str} · модель: **{model_label}** · "
-    f"цена серебра (фьючерс): **{current_price:,.0f} ₽** за лот".replace(",", " ")
+# Переключатель уровня сложности (сохраняется в session_state)
+if "user_level" not in st.session_state:
+    st.session_state.user_level = "🌱 Новичок"
+level = st.radio(
+    "Уровень опыта:",
+    options=["🌱 Новичок", "📊 Продвинутый", "🔬 Эксперт"],
+    horizontal=True,
+    key="user_level",
+    help=(
+        "**🌱 Новичок** — только «что делать сейчас», объяснения простым языком, "
+        "никаких профессиональных терминов.\n\n"
+        "**📊 Продвинутый** — добавлены ключевые метрики (Win Rate, прибыль), "
+        "видны параметры стратегии.\n\n"
+        "**🔬 Эксперт** — полная техническая информация: Sharpe, p_up, источник "
+        "модели, OOS metrics."
+    ),
 )
+is_novice = level.startswith("🌱")
+is_advanced = level.startswith("📊")
+is_expert = level.startswith("🔬")
+
+if is_expert:
+    st.caption(
+        f"Сегодня {today_str} · модель: **{model_label}** · "
+        f"цена серебра (фьючерс): **{current_price:,.0f} ₽** за лот".replace(",", " ")
+    )
+elif is_advanced:
+    st.caption(
+        f"Сегодня {today_str} · цена серебра: **{current_price:,.0f} ₽** за лот".replace(",", " ")
+    )
+else:  # novice
+    st.caption(f"Сегодня {today_str} · цена серебра: **{current_price:,.0f} ₽**".replace(",", " "))
 
 # Если сигнал устарел — предупреждаем
 if signal.get("is_stale"):
-    st.warning(signal.get("stale_reason", "⚠ Данные устарели"))
+    if is_novice:
+        st.warning("⚠ Данные не самые свежие. Можете подождать обновления.")
+    else:
+        st.warning(signal.get("stale_reason", "⚠ Данные устарели"))
 
 # Бейдж: action vs info (если есть метаданные дедупликации)
 if signal.get("alert_type") == "info" and signal.get("is_repeat"):
@@ -178,35 +209,76 @@ elif signal.get("signal") == "BUY":
     p_up = signal.get("p_up", 0)
     confidence = p_up * 100 if p_up else 0
 
-    st.markdown(
-        f"""
-        <div style="background:#E8F5E9; padding:24px; border-radius:12px;
-                    border-left: 6px solid #2E7D32;">
-            <h2 style="color:#2E7D32; margin:0;">
-                🟢 Помощник рекомендует купить
-            </h2>
-            <p style="font-size:18px; margin:8px 0 0 0; color:#333;">
-                Уверенность модели: <b>{confidence:.0f}%</b>
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    # === Главный блок BUY (адаптируется под уровень) ===
+    if is_novice:
+        # 🌱 НОВИЧОК — большая зелёная карточка с эмодзи и одной фразой
+        st.markdown(
+            f"""
+            <div style="background:#E8F5E9; padding:32px; border-radius:16px;
+                        border-left: 8px solid #2E7D32; text-align:center;">
+                <div style="font-size:72px; margin:0;">🟢 ✋</div>
+                <h1 style="color:#2E7D32; margin:8px 0 0 0; font-size:36px;">
+                    Можно покупать
+                </h1>
+                <p style="font-size:20px; margin:12px 0 0 0; color:#333;">
+                    Помощник уверен в росте серебра в ближайшие 2-4 недели.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.write("")
+        # Простая шкала уверенности вместо процентов
+        if confidence >= 65:
+            conf_text = "💪 Уверенность: **Высокая**"
+        elif confidence >= 50:
+            conf_text = "👌 Уверенность: **Средняя**"
+        else:
+            conf_text = "🤏 Уверенность: **Слабая**"
+        st.info(conf_text)
+    else:
+        # 📊 ПРОДВИНУТЫЙ / 🔬 ЭКСПЕРТ
+        st.markdown(
+            f"""
+            <div style="background:#E8F5E9; padding:24px; border-radius:12px;
+                        border-left: 6px solid #2E7D32;">
+                <h2 style="color:#2E7D32; margin:0;">
+                    🟢 Помощник рекомендует купить
+                </h2>
+                <p style="font-size:18px; margin:8px 0 0 0; color:#333;">
+                    Уверенность модели: <b>{confidence:.0f}%</b>
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
     st.write("")
 
-    # Параметры сделки
+    # === Параметры сделки ===
     trail_stop = current_price * (1 - TRAIL_PCT)
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.metric("Цена входа", f"{current_price:,.0f} ₽".replace(",", " "))
-    with c2:
-        st.metric("Защитный уровень",
-                  f"{trail_stop:,.0f} ₽".replace(",", " "),
-                  help=f"{TRAIL_PCT*100:.0f}% ниже текущей цены, "
-                       "поднимается за движением")
-    with c3:
-        st.metric("Срок", f"до {MAX_HOLD_DAYS} дней",
-                  help="Автоматическое закрытие если стоп не сработает")
+    if is_novice:
+        # 🌱 НОВИЧОК — только 2 главных числа в простых словах
+        c1, c2 = st.columns(2)
+        with c1:
+            st.metric("💵 Купить по цене", f"{current_price:,.0f} ₽".replace(",", " "))
+        with c2:
+            loss_pct = TRAIL_PCT * 100
+            st.metric(f"🛡️ Помощник продаст если упадёт на {loss_pct:.0f}%",
+                      f"{trail_stop:,.0f} ₽".replace(",", " "),
+                      help="Это «стоп» — автоматическая защита от больших потерь")
+    else:
+        # 📊 / 🔬 — стандартные 3 метрики
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("Цена входа", f"{current_price:,.0f} ₽".replace(",", " "))
+        with c2:
+            st.metric("Защитный уровень",
+                      f"{trail_stop:,.0f} ₽".replace(",", " "),
+                      help=f"{TRAIL_PCT*100:.0f}% ниже текущей цены, "
+                           "поднимается за движением")
+        with c3:
+            st.metric("Срок", f"до {MAX_HOLD_DAYS} дней",
+                      help="Автоматическое закрытие если стоп не сработает")
 
     if capital == 0:
         st.info(
