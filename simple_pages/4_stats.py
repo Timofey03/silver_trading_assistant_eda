@@ -179,27 +179,77 @@ else:
             help="Sharpe положительный со 100% вероятностью (Probabilistic Sharpe Ratio)",
         )
 
-    # Год-по-году E3b
+    # Год-по-году E3b — НОВЫЙ ПОДХОД: учитываем все годы в диапазоне,
+    # включая года где не было entries (но могли быть активные позиции)
     st.markdown("#### 📅 Результаты по годам")
-    e3b_yearly_df = e3b_trades.copy()
-    e3b_yearly_df["year"] = e3b_yearly_df["entry_date"].dt.year
-    yearly_stats = e3b_yearly_df.groupby("year").agg(
-        sdelok=("net_return", "count"),
-        win=("net_return", lambda s: (s > 0).mean()),
-        ret=("net_return", lambda s: (1 + s).prod() - 1),
-    ).reset_index()
 
-    yearly_view_e3b = pd.DataFrame({
-        "Год": yearly_stats["year"].astype(str),
-        "Сделок": yearly_stats["sdelok"].astype(int),
-        "Победы": (yearly_stats["win"] * 100).round(0).astype(int).astype(str) + "%",
-        "Прибыль": [f"{r*100:+.1f}%" for r in yearly_stats["ret"]],
-    })
+    e3b_yearly_df = e3b_trades.copy()
+    e3b_yearly_df["entry_year"] = e3b_yearly_df["entry_date"].dt.year
+    e3b_yearly_df["exit_year"] = e3b_yearly_df["exit_date"].dt.year
+
+    # По entry_year — стандартная группировка (когда модель вошла в позицию)
+    stats_by_entry = e3b_yearly_df.groupby("entry_year").agg(
+        n_entries=("net_return", "count"),
+        wins=("net_return", lambda s: (s > 0).sum()),
+        sum_return=("net_return", lambda s: (1 + s).prod() - 1),
+    )
+
+    # По exit_year — когда сделка реально закрылась (и принесла P&L)
+    stats_by_exit = e3b_yearly_df.groupby("exit_year").agg(
+        n_exits=("net_return", "count"),
+    )
+
+    # Объединяем по всем годам
+    all_years = sorted(set(stats_by_entry.index) | set(stats_by_exit.index))
+    rows = []
+    for y in all_years:
+        n_entries = int(stats_by_entry.loc[y, "n_entries"]) if y in stats_by_entry.index else 0
+        wins = int(stats_by_entry.loc[y, "wins"]) if y in stats_by_entry.index else 0
+        ret = stats_by_entry.loc[y, "sum_return"] if y in stats_by_entry.index else 0
+        n_exits = int(stats_by_exit.loc[y, "n_exits"]) if y in stats_by_exit.index else 0
+
+        # Активная сделка в этом году (если был carry-over)
+        active_only = n_exits > n_entries and n_entries == 0
+        if active_only:
+            # Найти трейд который закрылся в этот год но начался раньше
+            carry = e3b_yearly_df[
+                (e3b_yearly_df["exit_year"] == y) & (e3b_yearly_df["entry_year"] != y)
+            ]
+            carry_ret = (1 + carry["net_return"]).prod() - 1 if not carry.empty else 0
+            note = f"💤 0 новых сигналов — 1 позиция перешла из {y - 1} ({carry_ret*100:+.1f}%)"
+            win_label = "—"
+            ret_label = "—"  # доход относится к году входа
+        else:
+            note = ""
+            if n_entries > 0:
+                win_label = f"{wins / n_entries * 100:.0f}%"
+                ret_label = f"{ret * 100:+.1f}%"
+            else:
+                win_label = "—"
+                ret_label = "—"
+
+        rows.append({
+            "Год":       str(y),
+            "Сделок":    n_entries,
+            "Победы":    win_label,
+            "Прибыль":   ret_label,
+            "Примечание": note,
+        })
+
+    yearly_view_e3b = pd.DataFrame(rows)
     try:
         styled = yearly_view_e3b.style.map(_color_pct, subset=["Прибыль"])
     except AttributeError:
         styled = yearly_view_e3b.style.applymap(_color_pct, subset=["Прибыль"])
     st.dataframe(styled, use_container_width=True, hide_index=True)
+
+    # Объяснение
+    st.caption(
+        "💡 **Если в году 0 сделок** — модель не нашла достаточно сильных сигналов "
+        "(p_up ≥ 0.48). Cooldown 25 дней между сделками и max_hold 30 дней могут "
+        "также блокировать новые входы. В колонке «Примечание» указано если в "
+        "этот год была активна сделка, перешедшая из прошлого."
+    )
 
     # График накопленной доходности
     st.markdown("#### 📈 Кривая капитала E3b")
