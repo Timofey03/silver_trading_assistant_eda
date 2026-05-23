@@ -1,0 +1,8 @@
+scenario,round_trip_cost_pct,n_trades,total_return,annual_return,sharpe,max_dd
+ideal (0%),0.0,48,1.3605,0.0868,0.587,-0.1741
+commission only,0.2,48,1.1474,0.0769,0.53,-0.1794
++ tight spread,0.3,48,1.048,0.0719,0.502,-0.182
++ avg spread,0.4,48,0.9531,0.067,0.474,-0.1846
++ slippage,0.5,48,0.8626,0.0621,0.445,-0.1872
+realistic SLVRUBF,0.8,48,0.6148,0.0475,0.36,-0.1961
+pessimistic,1.2,48,0.3341,0.0283,0.247,-0.2697
