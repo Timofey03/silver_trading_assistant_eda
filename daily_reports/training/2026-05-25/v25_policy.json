@@ -1,0 +1,6 @@
+{
+  "up_threshold": 0.5,
+  "cooldown": 7,
+  "valid_buys": 32,
+  "valid_precision": 0.46875
+}
