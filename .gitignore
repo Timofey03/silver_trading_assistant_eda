@@ -34,3 +34,19 @@ daily_reports/cache/
 
 # Production model pickle — большой, регенерируется при daily run
 baseline_outputs_prod/production_model.pkl
+
+# Argentum runtime data — пользовательские позиции + кеши, не для GitHub
+argentum/backend/data/cache.pkl
+argentum/backend/data/argentum.db
+argentum/backend/data/argentum.db-shm
+argentum/backend/data/argentum.db-wal
+argentum/backend/data/positions.json
+argentum/backend/data/positions.json.imported
+
+# Node deps + build
+argentum/frontend/node_modules/
+argentum/frontend/.next/
+argentum/frontend/out/
+
+# Argentum logs / generated
+argentum/telegram_preview.png

@@ -1,5 +1,5 @@
 /**
- * Настройки — Tinkoff integration + параметры + о модели.
+ * /settings — Tinkoff + параметры + о модели.
  */
 import { api, type TinkoffBalance, type MetricsResponse } from "@/lib/api";
 import { formatRub } from "@/lib/utils";
@@ -26,11 +26,12 @@ export default async function SettingsPage() {
 
   return (
     <div className="space-y-12">
-      <div>
-        <h1 className="text-3xl font-medium tracking-tight mb-2">
-          Настройки
-        </h1>
-        <p className="text-sm text-neutral-500">
+      <div className="space-y-2">
+        <div className="text-[11px] uppercase tracking-widest text-[var(--text-faint)]">
+          Settings
+        </div>
+        <h1 className="text-3xl font-medium tracking-tight">Настройки</h1>
+        <p className="text-sm text-[var(--text-muted)]">
           Интеграции и параметры помощника
         </p>
       </div>
@@ -43,52 +44,39 @@ export default async function SettingsPage() {
 
 function TinkoffSection({ tinkoff }: { tinkoff: TinkoffBalance }) {
   return (
-    <section>
-      <h2 className="text-xl font-medium tracking-tight mb-4">
+    <section className="space-y-3">
+      <h2 className="text-base font-medium tracking-tight text-[var(--text-secondary)]">
         Tinkoff Invest
       </h2>
-      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/30 px-6 py-6">
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] px-6 py-6">
         {tinkoff.connected ? (
-          <div className="space-y-4">
+          <div className="space-y-5">
             <div className="flex items-center gap-2">
               <span className="inline-block w-2 h-2 rounded-full bg-emerald-400" />
-              <span className="text-sm">Подключено к sandbox-аккаунту</span>
+              <span className="text-sm text-[var(--text-primary)]">
+                Подключено к sandbox-аккаунту
+              </span>
             </div>
-            <div className="grid grid-cols-3 gap-4 pt-2">
-              <div>
-                <div className="text-xs text-neutral-500">Баланс</div>
-                <div className="font-[family-name:var(--font-mono)] text-2xl mt-1">
-                  {formatRub(tinkoff.total_rub)}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-neutral-500">Доходность</div>
-                <div
-                  className={`font-[family-name:var(--font-mono)] text-2xl mt-1 ${
-                    tinkoff.expected_yield_rub >= 0 ? "text-emerald-400" : "text-rose-400"
-                  }`}
-                >
-                  {formatRub(tinkoff.expected_yield_rub)}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-neutral-500">Открытых позиций</div>
-                <div className="font-[family-name:var(--font-mono)] text-2xl mt-1">
-                  {tinkoff.open_positions}
-                </div>
-              </div>
+            <div className="grid grid-cols-3 gap-6 pt-2">
+              <StatItem label="Баланс" value={formatRub(tinkoff.total_rub)} />
+              <StatItem
+                label="Доходность"
+                value={formatRub(tinkoff.expected_yield_rub)}
+                color={tinkoff.expected_yield_rub >= 0 ? "#10b981" : "#f43f5e"}
+              />
+              <StatItem label="Открытых позиций" value={String(tinkoff.open_positions)} />
             </div>
           </div>
         ) : (
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <span className="inline-block w-2 h-2 rounded-full bg-neutral-600" />
-              <span className="text-sm text-neutral-400">Не подключено</span>
+              <span className="inline-block w-2 h-2 rounded-full bg-[var(--text-faint)]" />
+              <span className="text-sm text-[var(--text-muted)]">Не подключено</span>
             </div>
-            <p className="text-sm text-neutral-500">
+            <p className="text-sm text-[var(--text-muted)]">
               {tinkoff.error || "Установите TINKOFF_TOKEN в .env для интеграции"}
             </p>
-            <code className="block text-xs text-neutral-600 font-[family-name:var(--font-mono)] mt-2">
+            <code className="block text-xs text-[var(--text-faint)] font-[family-name:var(--font-mono)] mt-2 px-3 py-2 rounded bg-[var(--bg-base)] border border-[var(--border-soft)]">
               # .env<br />
               TINKOFF_TOKEN=t.xxxxxxx...
             </code>
@@ -101,38 +89,32 @@ function TinkoffSection({ tinkoff }: { tinkoff: TinkoffBalance }) {
 
 function ModelSection({ metrics }: { metrics: MetricsResponse }) {
   return (
-    <section>
-      <h2 className="text-xl font-medium tracking-tight mb-4">
+    <section className="space-y-3">
+      <h2 className="text-base font-medium tracking-tight text-[var(--text-secondary)]">
         О модели
       </h2>
-      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/30 px-6 py-6 space-y-4">
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] px-6 py-6 space-y-5">
         <div>
-          <div className="text-xs text-neutral-500">Модель</div>
-          <div className="mt-1 font-[family-name:var(--font-mono)]">
-            {metrics.model_name} · multi-asset + adaptive barriers
+          <div className="text-[11px] uppercase tracking-widest text-[var(--text-faint)]">
+            Модель
+          </div>
+          <div className="mt-1 font-[family-name:var(--font-mono)] text-[var(--text-primary)]">
+            {metrics.model_name}{" "}
+            <span className="text-[var(--text-muted)]">· multi-asset + adaptive barriers</span>
           </div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2">
-          {[
-            { label: "Sharpe", value: metrics.sharpe.toFixed(2) },
-            { label: "Win Rate", value: `${Math.round(metrics.win_rate * 100)}%` },
-            { label: "Признаков", value: metrics.model_features.toString() },
-            { label: "Сделок", value: metrics.n_trades.toString() },
-          ].map((m) => (
-            <div key={m.label}>
-              <div className="text-xs text-neutral-500">{m.label}</div>
-              <div className="font-[family-name:var(--font-mono)] text-lg mt-1">
-                {m.value}
-              </div>
-            </div>
-          ))}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+          <StatItem label="Sharpe" value={metrics.sharpe.toFixed(2)} />
+          <StatItem label="Win Rate" value={`${Math.round(metrics.win_rate * 100)}%`} />
+          <StatItem label="Признаков" value={String(metrics.model_features)} />
+          <StatItem label="Сделок" value={String(metrics.n_trades)} />
         </div>
-        <div className="pt-4 border-t border-neutral-800 flex gap-4 text-sm">
+        <div className="pt-4 border-t border-[var(--border-soft)] flex gap-4 text-sm">
           <a
             href="https://github.com/Timofey03/silver_trading_assistant_eda"
             target="_blank"
             rel="noopener"
-            className="text-neutral-400 hover:text-neutral-100 transition-colors"
+            className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
           >
             GitHub →
           </a>
@@ -140,12 +122,28 @@ function ModelSection({ metrics }: { metrics: MetricsResponse }) {
             href="http://127.0.0.1:8000/docs"
             target="_blank"
             rel="noopener"
-            className="text-neutral-400 hover:text-neutral-100 transition-colors"
+            className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
           >
             API Docs →
           </a>
         </div>
       </div>
     </section>
+  );
+}
+
+function StatItem({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div>
+      <div className="text-[11px] uppercase tracking-widest text-[var(--text-faint)]">
+        {label}
+      </div>
+      <div
+        className="mt-1.5 font-[family-name:var(--font-mono)] text-xl tabular-nums"
+        style={{ color: color || undefined }}
+      >
+        {value}
+      </div>
+    </div>
   );
 }

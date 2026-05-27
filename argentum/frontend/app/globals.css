@@ -1,26 +1,121 @@
 @import "tailwindcss";
 
+/* Tailwind v4: dark mode через .dark класс на html */
+@variant dark (&:where(.dark, .dark *));
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Dark theme — Linear / Vercel inspired */
+  --bg-base:      #0a0a0b;   /* canvas */
+  --bg-elevated:  #131316;   /* cards */
+  --bg-subtle:    #1c1c20;   /* hover, subtle bg */
+  --border:       #27272a;
+  --border-soft:  #1f1f23;
+
+  --text-primary:   #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-muted:     #71717a;
+  --text-faint:     #52525b;
+
+  /* Brand */
+  --emerald:  #10b981;
+  --rose:     #f43f5e;
+  --amber:    #f59e0b;
+}
+
+/* Light theme — переопределение */
+html.light {
+  --bg-base:      #ffffff;
+  --bg-elevated:  #f9fafb;
+  --bg-subtle:    #f3f4f6;
+  --border:       #e5e7eb;
+  --border-soft:  #f3f4f6;
+
+  --text-primary:   #0a0a0b;
+  --text-secondary: #404048;
+  --text-muted:     #6b7280;
+  --text-faint:     #9ca3af;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg-base:      var(--bg-base);
+  --color-bg-elevated:  var(--bg-elevated);
+  --color-bg-subtle:    var(--bg-subtle);
+  --color-border:       var(--border);
+  --color-border-soft:  var(--border-soft);
+
+  --font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-mono), "JetBrains Mono", ui-monospace, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html, body {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-inter), system-ui, -apple-system, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";  /* Inter modern figures */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+}
+
+/* Selection */
+::selection {
+  background: var(--emerald);
+  color: #0a0a0b;
+}
+
+/* Smooth scroll + reduce motion respect */
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* Keyframes для CSS-анимаций без Framer Motion */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInScale {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Hover-lift utility */
+.lift-on-hover {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s, box-shadow 0.25s;
+}
+.lift-on-hover:hover {
+  transform: translateY(-2px);
+  border-color: rgba(82, 82, 91, 0.4);
+}
+
+/* Subtle gradient noise overlay (Linear-style) */
+.bg-noise::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.015;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' /%3E%3C/svg%3E");
 }
