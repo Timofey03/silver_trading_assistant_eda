@@ -219,7 +219,7 @@ def generate_today_signal() -> dict:
             "signal":    signal,
             "entry_threshold": ENTRY_THR,
             "exit_threshold": EXIT_THR,
-            "trail_pct": 0.12,
+            "trail_pct": 0.20,   # 2026-05-24: повышено с 0.12 после grid search (Sharpe 0.07 -> 0.35)
             "max_hold_days": 30,
             "cooldown_days": 25,
             "n_features_used": len(sel_cols),
@@ -400,13 +400,46 @@ def save_trading_report(signal_info: dict, alert: dict) -> dict:
 # Optional: Telegram notification
 # =============================================================================
 def send_telegram(signal_info: dict, metrics: dict) -> None:
-    """Опционально отправить уведомление в Telegram."""
+    """Опционально отправить уведомление в Telegram.
+
+    Сначала пробуем PNG-чарт через app.telegram_chart (красиво).
+    Если matplotlib/requests упали — fallback на старый sendMessage.
+    """
     token = os.getenv("TG_BOT_TOKEN")
     chat_id = os.getenv("TG_CHAT_ID")
     if not token or not chat_id:
         print("  (Telegram credentials отсутствуют, skip)")
         return
 
+    # === Попытка №1: Portfolio PNG (master signal + positions) ===
+    try:
+        import sys as _sys
+        _repo = str(REPO_ROOT)
+        if _repo not in _sys.path:
+            _sys.path.insert(0, _repo)
+        from app.telegram_portfolio import send_portfolio_chart
+        ok = send_portfolio_chart()
+        if ok:
+            print("  Telegram: Portfolio chart sent (master + positions)")
+            return
+        else:
+            print("  Telegram: portfolio chart failed -> trying signal chart")
+    except Exception as e:
+        print(f"  Telegram: portfolio module failed ({e}) -> fallback signal chart")
+
+    # === Попытка №2: signal chart (legacy single-signal) ===
+    try:
+        from app.telegram_chart import send_signal_with_chart
+        ok = send_signal_with_chart(signal_info, metrics)
+        if ok:
+            print("  Telegram: signal chart sent")
+            return
+        else:
+            print("  Telegram: signal chart failed -> fallback to text")
+    except Exception as e:
+        print(f"  Telegram: signal chart failed ({e}) -> fallback to text")
+
+    # === Попытка №2: plain sendMessage (legacy fallback) ===
     try:
         import urllib.request
         import urllib.parse

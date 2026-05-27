@@ -187,12 +187,40 @@ def cross_asset_features(
 # Финальная сборка
 # =============================================================================
 
+def _ffill_audit(df_before: pd.DataFrame, df_after: pd.DataFrame, label: str) -> dict:
+    """Логирует сколько cells было заполнено ffill для каждой колонки."""
+    import logging
+    _log = logging.getLogger(__name__)
+    report = {}
+    total_cells_before = df_before.notna().sum().sum()
+    total_cells_after = df_after.notna().sum().sum()
+    cells_filled = int(total_cells_after - total_cells_before)
+    n_rows = len(df_before)
+    if cells_filled > 0:
+        per_col = (df_after.notna().sum() - df_before.notna().sum()).sort_values(ascending=False)
+        top3 = per_col[per_col > 0].head(3)
+        report = {
+            "label":              label,
+            "cells_filled":       cells_filled,
+            "rows":               n_rows,
+            "fill_density":       round(cells_filled / max(1, n_rows * len(df_before.columns)) * 100, 2),
+            "top_filled_cols":    {c: int(n) for c, n in top3.items()},
+        }
+        _log.info(
+            f"  [ffill audit] {label}: filled {cells_filled} cells "
+            f"({report['fill_density']}% of frame). Top: " +
+            ", ".join(f"{c}={n}" for c, n in top3.items())
+        )
+    return report
+
+
 def build_feature_frame(
     target: str = "silver",
     metals: Optional[dict[str, pd.DataFrame]] = None,
     macro_frame: Optional[pd.DataFrame] = None,
     force_refresh: bool = False,
     ffill_limit: int = 0,
+    audit_ffill: bool = True,
 ) -> pd.DataFrame:
     """Собрать финальный feature DataFrame для целевого актива.
 
@@ -204,16 +232,23 @@ def build_feature_frame(
         metals: dict из load_metals(). Если None — загружается заново.
         macro_frame: assembled macro frame. Если None — собирается заново.
         force_refresh: пересохранить кеш данных.
+        ffill_limit: максимум дней для ffill метал-фичей (palladium gaps).
+        audit_ffill: логировать сколько cells заполняется через ffill.
 
     Returns:
-        DataFrame готовый к ML pipeline.
+        DataFrame готовый к ML pipeline. Атрибут .attrs['ffill_audit']
+        содержит отчёт о заполнениях.
     """
+    import logging
+    _log = logging.getLogger(__name__)
+
     if metals is None:
         metals = load_metals(force_refresh=force_refresh)
     if target not in metals or metals[target].empty:
         raise ValueError(f"Target {target} not loaded")
 
     target_index = metals[target].index
+    audit_reports = {}
 
     # 1. Per-asset features для всех 5 металлов
     per_asset = []
@@ -223,20 +258,33 @@ def build_feature_frame(
         feats = per_asset_features(df, prefix=metal)
         per_asset.append(feats)
 
-    all_per_asset = pd.concat(per_asset, axis=1, sort=False).reindex(target_index)
+    all_per_asset_raw = pd.concat(per_asset, axis=1, sort=False).reindex(target_index)
+    # reindex без ffill — NaN там где per-asset не торгуется
+    all_per_asset = all_per_asset_raw  # no ffill on per-asset (each metal has own bday calendar)
 
     # 2. Cross-asset features
+    cross_raw = cross_asset_features(metals, ffill_limit=0)
     cross = cross_asset_features(metals, ffill_limit=ffill_limit).reindex(target_index)
+    if audit_ffill and ffill_limit > 0:
+        report = _ffill_audit(cross_raw.reindex(target_index), cross, "cross_asset")
+        if report:
+            audit_reports["cross_asset"] = report
 
     # 3. Macro features
     if macro_frame is None:
         macro = load_macro(force_refresh=force_refresh)
-        macro_frame = assemble_macro_frame(macro, target_index=target_index)
+        macro_frame_raw = assemble_macro_frame(macro, target_index=target_index)
     else:
-        macro_frame = macro_frame.reindex(target_index).ffill()
+        macro_frame_raw = macro_frame.reindex(target_index)
+
+    macro_frame_filled = macro_frame_raw.ffill()
+    if audit_ffill:
+        report = _ffill_audit(macro_frame_raw, macro_frame_filled, "macro")
+        if report:
+            audit_reports["macro"] = report
 
     # 4. Объединение
-    result = pd.concat([all_per_asset, cross, macro_frame], axis=1)
+    result = pd.concat([all_per_asset, cross, macro_frame_filled], axis=1)
     result.index.name = "date"
 
     # Сохраняем close target для удобства разметки
@@ -244,6 +292,17 @@ def build_feature_frame(
     result["target_high"] = metals[target]["high"].reindex(target_index)
     result["target_low"] = metals[target]["low"].reindex(target_index)
 
+    # Total NaN after pipeline
+    if audit_ffill:
+        total_cells = result.size
+        nan_cells = result.isna().sum().sum()
+        _log.info(
+            f"  [ffill audit] FINAL: {result.shape[0]} rows × {result.shape[1]} cols. "
+            f"NaN cells: {nan_cells} ({nan_cells/total_cells*100:.1f}%). "
+            f"After dropna() will keep ~{result.dropna().shape[0]} rows."
+        )
+
+    result.attrs["ffill_audit"] = audit_reports
     return result
 
 

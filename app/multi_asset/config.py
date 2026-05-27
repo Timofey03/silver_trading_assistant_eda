@@ -25,7 +25,9 @@ for d in (METALS_DIR, MACRO_DIR, FEATURES_DIR, LABELS_DIR, REPORTS_DIR):
 # Серебро на COMEX уже хорошо ликвидно с 2010, но FRED COT/TIPS дают
 # полный набор с 2010-01-01. Берём с 2010 для широты регимов.
 START_DATE = "2010-01-01"
-END_DATE = "2026-05-20"  # обновляется автоматически в pipeline
+# END_DATE — динамически = завтра (yfinance включает данные до end exclusive)
+from datetime import date, timedelta as _td
+END_DATE = (date.today() + _td(days=1)).isoformat()
 
 
 # =============================================================================

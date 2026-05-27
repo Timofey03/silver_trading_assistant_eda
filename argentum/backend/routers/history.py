@@ -50,8 +50,10 @@ def get_history(limit: int = 10):
         )
 
     df = pd.read_csv(E3B_TRADES)
-    df["entry_date"] = pd.to_datetime(df["entry_date"])
-    df["exit_date"] = pd.to_datetime(df["exit_date"])
+    df["entry_date"] = pd.to_datetime(df["entry_date"], errors="coerce")
+    df["exit_date"] = pd.to_datetime(df["exit_date"], errors="coerce")
+    # Исключаем OPEN сделки из истории (показываются в /api/position)
+    df = df[df["exit_date"].notna()]
     df = df.sort_values("exit_date")
 
     # Equity curve через compound каждой сделки

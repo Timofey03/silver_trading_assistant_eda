@@ -1,0 +1,48 @@
+name: Weekly Walk-forward Backfill
+
+# Каждое воскресенье в 22:00 UTC (1:00 MSK Monday)
+# Пересчитывает walk-forward + applied optimal config на свежих данных.
+
+on:
+  schedule:
+    - cron: '0 22 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, token: '${{ secrets.GITHUB_TOKEN }}' }
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12', cache: 'pip' }
+
+      - name: Install
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install python-dotenv lightgbm yfinance pyarrow scikit-learn matplotlib
+
+      - name: Refresh data + backfill walk-forward + optimal config
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID:   ${{ secrets.TG_CHAT_ID }}
+        run: |
+          python scripts/backfill_walkforward_ffill5.py
+          python scripts/apply_optimal_exits.py
+
+      - name: Commit fresh backtest
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add baseline_outputs_multiasset/e3b_adaptive/ \
+                  data/multi_asset/metals/ || true
+          if ! git diff --cached --quiet; then
+            git commit -m "Weekly backfill $(date -u +%Y-%m-%d) [skip ci]"
+            git push
+          fi

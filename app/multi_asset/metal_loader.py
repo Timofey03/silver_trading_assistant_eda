@@ -114,15 +114,65 @@ def _validate_metal_data(df: pd.DataFrame, metal: str) -> dict:
     return diagnostics
 
 
-def load_single_metal(metal: str, force_refresh: bool = False) -> pd.DataFrame:
-    """Загрузить один металл (из кеша или yfinance).
+def _enforce_validation(df: pd.DataFrame, metal: str, strict: bool = False) -> pd.DataFrame:
+    """
+    Авто-валидация на каждой загрузке.
+
+    - Запускает _validate_metal_data + логирует warnings
+    - Применяет фиксы (clamp OHLC, выкидывает non-positive prices)
+    - strict=True → raise при критических проблемах (empty, all negative)
+    """
+    from app.multi_asset.data_quality import fix_ohlc_ordering, detect_outliers
+
+    diag = _validate_metal_data(df, metal)
+    if not diag["ok"]:
+        if strict:
+            raise RuntimeError(f"{metal}: validation failed — {diag['warnings']}")
+        logger.error(f"  {metal}: CRITICAL — {diag['warnings']}")
+        return df
+
+    # Auto-fix OHLC
+    df_fixed, n_ohlc = fix_ohlc_ordering(df)
+    if n_ohlc > 0:
+        logger.warning(f"  {metal}: auto-fixed {n_ohlc} invalid OHLC rows")
+
+    # Outlier detection (mark only, don't drop)
+    outliers = detect_outliers(df_fixed, threshold=0.20)
+    if outliers.sum() > 0:
+        outlier_dates = [str(d.date()) for d in df_fixed.index[outliers]][:3]
+        logger.warning(f"  {metal}: {outliers.sum()} outliers (|ret|>20%): "
+                       f"{', '.join(outlier_dates)}{'...' if outliers.sum() > 3 else ''}")
+        df_fixed["is_outlier"] = outliers.values
+
+    # Drop non-positive
+    bad = (df_fixed["close"] <= 0)
+    if bad.any():
+        logger.warning(f"  {metal}: dropped {bad.sum()} non-positive close rows")
+        df_fixed = df_fixed[~bad].copy()
+
+    # Log other warnings
+    if diag["warnings"]:
+        # Some warnings already addressed; log others
+        for w in diag["warnings"]:
+            if "invalid OHLC" in w:
+                continue  # уже исправили
+            logger.warning(f"  {metal}: {w}")
+
+    return df_fixed
+
+
+def load_single_metal(metal: str, force_refresh: bool = False,
+                       skip_validation: bool = False) -> pd.DataFrame:
+    """Загрузить один металл (из кеша или yfinance) + auto-validate.
 
     Args:
         metal: ключ из METALS ('silver', 'gold', etc.)
         force_refresh: True → принудительно перезагрузить
+        skip_validation: True → пропустить auto-валидацию (для legacy совместимости)
 
     Returns:
         DataFrame с колонками [open, high, low, close, volume], indexed by date.
+        Может содержать колонку 'is_outlier' если найдены outliers.
     """
     if metal not in METALS:
         raise ValueError(f"Unknown metal: {metal}. Available: {list(METALS.keys())}")
@@ -131,17 +181,21 @@ def load_single_metal(metal: str, force_refresh: bool = False) -> pd.DataFrame:
     if not force_refresh and _is_cache_fresh(cache, max_age_days=1):
         df = pd.read_parquet(cache)
         logger.info(f"  {metal}: cached ({len(df)} rows)")
+        # Auto-validate cached data too (быстрая операция)
+        if not skip_validation:
+            df = _enforce_validation(df, metal, strict=False)
         return df
 
     ticker = METALS[metal]["ticker"]
     logger.info(f"  {metal} ({ticker}): downloading...")
     df = _download_yf(ticker, START_DATE, END_DATE)
 
-    # yfinance уже возвращает business days only. Никаких reindex/ffill —
-    # они ломают OHLC ordering. Только выкидываем строки с нулевым volume,
-    # если они есть в начале или конце ряда (бывает у редколиквидных контрактов).
     df = df[df["close"] > 0].copy()
     df.index.name = "date"
+
+    # Auto-validate ДО сохранения в кеш (чтобы кеш был чистый)
+    if not skip_validation:
+        df = _enforce_validation(df, metal, strict=False)
 
     df.to_parquet(cache, compression="snappy")
     logger.info(f"  {metal}: saved {len(df)} rows to {cache.name}")

@@ -29,13 +29,21 @@ from fastapi.middleware.cors import CORSMiddleware
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from routers import signal, price, history, metrics, candles, tinkoff, explain
+from routers import signal, price, history, metrics, candles, tinkoff, explain, position, fx, analytics, evolution, positions
+from cache import cache_load_from_disk, cache_save_to_disk
+import atexit
 
 app = FastAPI(
     title="Argentum API",
     description="AI-помощник для рынка серебра — backend API",
     version="2.0.0",
 )
+
+# Restore cache from disk at startup, save at shutdown
+_restored = cache_load_from_disk()
+if _restored:
+    print(f"[cache] restored {_restored} entries from disk")
+atexit.register(cache_save_to_disk)
 
 # CORS для Next.js dev server (port 3000)
 app.add_middleware(
@@ -65,6 +73,11 @@ app.include_router(metrics.router, prefix="/api", tags=["metrics"])
 app.include_router(candles.router, prefix="/api", tags=["candles"])
 app.include_router(tinkoff.router, prefix="/api", tags=["tinkoff"])
 app.include_router(explain.router, prefix="/api", tags=["explain"])
+app.include_router(position.router, prefix="/api", tags=["position"])
+app.include_router(fx.router, prefix="/api", tags=["fx"])
+app.include_router(analytics.router, prefix="/api", tags=["analytics"])
+app.include_router(evolution.router, prefix="/api", tags=["evolution"])
+app.include_router(positions.router, prefix="/api", tags=["positions"])
 
 
 @app.get("/")
@@ -80,6 +93,8 @@ def root():
             "/api/metrics",
             "/api/candles",
             "/api/tinkoff/balance",
+            "/api/tinkoff/order",
             "/api/explain",
+            "/api/position",
         ],
     }

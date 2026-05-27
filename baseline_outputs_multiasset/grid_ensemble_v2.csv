@@ -1,0 +1,8 @@
+config,n,ret%,sharpe,dd%,win%,rally,last
+e3b OR (mom AND breakout),54,316.9,1.234,-5.6,81.5,0,2026-04-20
+e3b_strong (current best Sharpe),52,304.4,1.212,-5.6,80.8,0,2026-04-20
+e3b OR (mom_loose AND breakout),61,298.7,1.108,-10.4,75.4,0,2026-04-20
+e3b OR mom_strong OR breakout_120,90,343.5,0.994,-25.8,64.4,11,2026-04-20
+FULL ENSEMBLE,71,270.9,0.921,-22.2,74.6,2,2026-04-20
+e3b OR mom_strong,63,236.8,0.871,-21.1,77.8,2,2026-04-20
+e3b OR mom_strong OR breakout_60_uptrend,109,195.6,0.808,-26.5,56.9,11,2026-04-20

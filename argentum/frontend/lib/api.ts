@@ -110,12 +110,165 @@ export interface CandleResponse {
   range_end: string;
 }
 
+export interface TinkoffPosition {
+  figi: string;
+  instrument_type: string;
+  qty: number;
+  avg_price: number;
+  current_price: number;
+  yield_rub: number;
+}
+
 export interface TinkoffBalance {
   connected: boolean;
   total_rub: number;
   expected_yield_rub: number;
+  free_cash_rub?: number;
   open_positions: number;
+  positions?: TinkoffPosition[];
   error: string;
+}
+
+export interface OrderRequest {
+  direction: "BUY" | "SELL";
+  lots?: number;
+  ticker?: string;
+}
+
+export interface OrderResponse {
+  success: boolean;
+  order_id: string;
+  executed_lots: number;
+  executed_price: number;
+  direction: string;
+  figi: string;
+  error: string;
+}
+
+export interface OpenPositionResponse {
+  is_open: boolean;
+  entry_date: string;
+  entry_price: number;
+  current_price: number;
+  unrealized_return: number;
+  days_held: number;
+  max_hold_days: number;
+  trail_pct: number;
+  stop_price: number;
+  target_close: number;
+  signal: string;
+  p_up: number;
+  source: string;
+  regime_allows_trade?: boolean;
+  regime_reason?: string;
+}
+
+export interface EquityPoint {
+  date: string;
+  model: number;
+  buy_hold: number;
+}
+
+export interface EquityResponse {
+  points: EquityPoint[];
+  model_final: number;
+  buy_hold_final: number;
+  outperformance_pp: number;
+  period_start: string;
+  period_end: string;
+}
+
+export interface MonthlyCell {
+  year: number;
+  month: number;
+  return_pct: number;
+  n_trades: number;
+}
+
+export interface MonthlyResponse {
+  cells: MonthlyCell[];
+  years: number[];
+  best_month: number;
+  worst_month: number;
+  best_year: number;
+  worst_year: number;
+  avg_month: number;
+}
+
+export interface ExperimentMetrics {
+  id: string;
+  name: string;
+  description: string;
+  stage: string;
+  sharpe: number;
+  sortino: number;
+  total_return: number;
+  annual_return: number;
+  max_dd: number;
+  win_rate: number;
+  n_trades: number;
+  profit_factor: number;
+  period_years: number;
+  available: boolean;
+}
+
+export interface EvolutionResponse {
+  experiments: ExperimentMetrics[];
+  best_sharpe: string;
+  best_return: string;
+}
+
+export interface PositionRecord {
+  id: string;
+  ticker: string;
+  figi: string;
+  opened_at: string;
+  entry_price: number;
+  lots: number;
+  lot_size_g: number;
+  peak_price: number;
+  source: string;
+  current_price: number;
+  days_held: number;
+  unrealized_pnl_pct: number;
+  advice: "HOLD" | "SELL";
+  advice_reason: string;
+}
+
+export interface PositionsResponse {
+  positions: PositionRecord[];
+  master_signal: "BUY" | "WAIT" | "AVOID";
+  master_reason: string;
+  master_p_up: number;
+  n_open: number;
+  can_buy: boolean;
+}
+
+export interface OpenPositionAPIResponse {
+  success: boolean;
+  position?: PositionRecord;
+  tinkoff_order_id: string;
+  executed_price: number;
+  error: string;
+}
+
+export interface ClosePositionResponse {
+  success: boolean;
+  closed_at: string;
+  exit_price: number;
+  realized_pnl_pct: number;
+  tinkoff_order_id: string;
+  error: string;
+}
+
+export interface FxRates {
+  usd_silver: number;
+  usdrub: number;
+  rub_silver: number;
+  usdrub_change_5d_pct: number;
+  fx_volatility_flag: boolean;
+  source: string;
+  last_update: string;
 }
 
 export interface FeatureInsight {
@@ -158,4 +311,30 @@ export const api = {
     fetchJson<CandleResponse>(`/api/candles?period=${period}`),
   tinkoff:  () => fetchJson<TinkoffBalance>("/api/tinkoff/balance"),
   explain:  () => fetchJson<ExplainResponse>("/api/explain"),
+  position: () => fetchJson<OpenPositionResponse>("/api/position"),
+  fx:       () => fetchJson<FxRates>("/api/fx"),
+  equity:   (period: "1m" | "3m" | "6m" | "1y" | "3y" | "all" = "all") =>
+    fetchJson<EquityResponse>(`/api/equity?period=${period}`),
+  monthly:  () => fetchJson<MonthlyResponse>("/api/monthly"),
+  evolution: () => fetchJson<EvolutionResponse>("/api/evolution"),
+  positions: () => fetchJson<PositionsResponse>("/api/positions"),
+  openPosition: (lots = 1, ticker = "SLVRUBF") =>
+    fetch(`${API_BASE}/api/positions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lots, ticker }),
+    }).then((r) => r.json() as Promise<OpenPositionAPIResponse>),
+  closePosition: (id: string) =>
+    fetch(`${API_BASE}/api/positions/${id}`, { method: "DELETE" })
+      .then((r) => r.json() as Promise<ClosePositionResponse>),
+  order:    (req: OrderRequest) =>
+    fetch(`${API_BASE}/api/tinkoff/order`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({
+        direction: req.direction,
+        lots:      req.lots ?? 1,
+        ticker:    req.ticker ?? "SLV",
+      }),
+    }).then((r) => r.json() as Promise<OrderResponse>),
 };

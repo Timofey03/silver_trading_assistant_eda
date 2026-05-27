@@ -3,11 +3,11 @@
   "close": 74.8280029296875,
   "p_up": 0.6530720448304282,
   "signal": "BUY",
-  "entry_threshold": 0.48,
-  "exit_threshold": 0.35,
-  "trail_pct": 0.12,
-  "max_hold_days": 30,
-  "cooldown_days": 25,
+  "entry_threshold": 0.7,
+  "exit_threshold": 0.3,
+  "trail_pct": 0.2,
+  "max_hold_days": 60,
+  "cooldown_days": 10,
   "n_features_used": 30,
   "selected_features": [
     "silver_dist_ma200",
@@ -47,8 +47,8 @@
   "signal_changed": true,
   "previous_signal": "HOLD",
   "previous_dir": "2026-05-22",
-  "headline": "\ud83d\udce2 \u041d\u041e\u0412\u042b\u0419 \u0421\u0418\u0413\u041d\u0410\u041b: HOLD \u2192 BUY",
-  "explanation": "\u041c\u043e\u0434\u0435\u043b\u044c \u0441\u043c\u0435\u043d\u0438\u043b\u0430 \u0441\u0438\u0433\u043d\u0430\u043b \u0441 \u00abHOLD\u00bb \u043d\u0430 \u00abBUY\u00bb.",
+  "headline": "📢 НОВЫЙ СИГНАЛ: HOLD → BUY",
+  "explanation": "Модель сменила сигнал с «HOLD» на «BUY».",
   "run_time_utc": "155516",
   "run_date_utc": "2026-05-22"
 }

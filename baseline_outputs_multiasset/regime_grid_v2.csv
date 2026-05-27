@@ -1,0 +1,8 @@
+filter,days_allow,n,ret%,sharpe,dd%,win%
+non_bull_AND_down,763,37,153.4,0.921,-13.6,75.7
+trend_DOWN_only,1207,37,137.3,0.678,-13.6,81.1
+non_bull_only,1826,41,71.5,0.522,-27.7,65.9
+baseline,2820,39,91.2,0.515,-21.5,66.7
+down_AND_volhigh,318,12,46.6,0.481,-9.9,75.0
+down_OR_volhigh,1872,45,71.7,0.474,-24.3,71.1
+vol_HIGH_only,983,23,9.2,0.147,-20.1,60.9
