@@ -11,6 +11,9 @@ import {
 import { formatPct, formatUsd, formatRub } from "@/lib/utils";
 import { Sparkles } from "lucide-react";
 import HeroSignal from "@/components/HeroSignal";
+import PositionSummaryCard from "@/components/PositionSummaryCard";
+import PositionCalculator from "@/components/PositionCalculator";
+import FeatureContribution from "@/components/FeatureContribution";
 
 export const revalidate = 60;
 
@@ -44,7 +47,10 @@ export default async function HomePage() {
   return (
     <div className="space-y-10">
       <HeroSignal signal={signal} />
+      <PositionSummaryCard />
       <PriceCard price={price} fx={fx} />
+      <FeatureContribution />
+      <PositionCalculator />
       <ExplainSection explain={explain} signal={signal} />
     </div>
   );

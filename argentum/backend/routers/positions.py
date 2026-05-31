@@ -68,7 +68,10 @@ class Position(BaseModel):
     # Computed fields (set in GET):
     current_price: float = 0.0
     days_held: int = 0
-    unrealized_pnl_pct: float = 0.0
+    unrealized_pnl_pct: float = 0.0           # sandbox P&L (entry vs current)
+    market_pnl_pct: float = 0.0               # theoretical market P&L (без sandbox slippage)
+    market_entry_price: float = 0.0           # теоретическая market цена в момент входа
+    market_current_price: float = 0.0         # теоретическая market цена сейчас
     advice: str = "HOLD"
     advice_reason: str = ""
 
@@ -130,7 +133,7 @@ def _save_positions(positions: list[dict]) -> None:
 # ─── Market state ───────────────────────────────────────────────────────────
 
 @ttl_cache(ttl_seconds=60)
-@ttl_cache(ttl_seconds=60)
+@ttl_cache(ttl_seconds=300)
 def _current_silver_price_rub(figi: str = "FSLVRUB00000") -> float:
     """
     Цена FSLVRUB фьючерса в рублях (live).
@@ -157,7 +160,7 @@ def _current_silver_price_rub(figi: str = "FSLVRUB00000") -> float:
             r = requests.post(url, json={"figi": [figi]},
                               headers={"Authorization": f"Bearer {token}",
                                        "Content-Type": "application/json"},
-                              timeout=10)
+                              timeout=3)  # быстрый fail → fallback на theoretical
             data = r.json()
             prices = data.get("lastPrices", [])
             if prices:
@@ -344,9 +347,134 @@ def _master_advise(positions: list[dict], p_smooth: float) -> tuple[str, str, bo
 
 # ─── Routes ─────────────────────────────────────────────────────────────────
 
+def _theoretical_rub_price(at_date: Optional[date] = None) -> float:
+    """
+    Теоретическая цена 1 контракта SLVRUBF (100г) на указанную дату.
+    = USD silver close × 100/31.1 oz × USDRUB
+
+    Если at_date None — текущая (latest data).
+    """
+    try:
+        df = pd.read_parquet(SILVER_PARQUET)
+        if at_date is not None:
+            sd = df.index.asof(pd.Timestamp(at_date))
+            if pd.isna(sd):
+                return 0.0
+            usd_per_oz = float(df.loc[sd, "close"])
+        else:
+            usd_per_oz = float(df["close"].iloc[-1])
+    except Exception:
+        return 0.0
+
+    usdrub = 0.0
+    usdrub_file = REPO_ROOT / "data" / "multi_asset" / "macro" / "USDRUB_daily.parquet"
+    if usdrub_file.exists():
+        try:
+            df = pd.read_parquet(usdrub_file)
+            if at_date:
+                sd = df.index.asof(pd.Timestamp(at_date))
+                if not pd.isna(sd):
+                    usdrub = float(df.loc[sd, df.columns[0]])
+            if usdrub <= 0 and len(df.columns):
+                usdrub = float(df[df.columns[0]].dropna().iloc[-1])
+        except Exception:
+            pass
+    if usdrub <= 0:
+        try:
+            import yfinance as yf
+            hist = yf.Ticker("RUB=X").history(period="30d")
+            hist.index = hist.index.tz_localize(None).normalize()
+            if at_date:
+                sd = hist.index.asof(pd.Timestamp(at_date))
+                if not pd.isna(sd):
+                    usdrub = float(hist.loc[sd, "Close"])
+            if usdrub <= 0:
+                usdrub = float(hist["Close"].iloc[-1])
+        except Exception:
+            pass
+
+    if usd_per_oz > 0 and usdrub > 0:
+        return usd_per_oz * (100 / 31.1035) * usdrub
+    return 0.0
+
+
+@ttl_cache(ttl_seconds=120)
+def _list_positions_cached() -> dict:
+    """
+    Полный вычисленный response cached на 2 минуты.
+    Цены обновляются каждые 5 минут (TTL _current_silver_price_rub),
+    response cache 2 мин чтобы UI auto-refresh не дёргал HEavy work каждые 30с.
+    """
+    raw = _load_positions()
+    current_price = _current_silver_price()
+    p_smooth = _current_p_up_smoothed()
+
+    positions_out: list[dict] = []
+    for p in raw:
+        new_peak = max(float(p.get("peak_price", current_price)), current_price)
+        if new_peak > float(p.get("peak_price", 0)):
+            p["peak_price"] = new_peak
+
+        try:
+            opened = datetime.fromisoformat(p["opened_at"].replace("Z", "").split("_")[0])
+            days_held = (date.today() - opened.date()).days
+        except Exception:
+            days_held = 0
+
+        pnl = ((current_price - p["entry_price"]) / p["entry_price"]) if p.get("entry_price") else 0.0
+
+        # Theoretical market prices (без sandbox slippage)
+        try:
+            entry_date = datetime.fromisoformat(p["opened_at"].replace("Z", "").split("_")[0]).date()
+        except Exception:
+            entry_date = date.today()
+        market_entry = _theoretical_rub_price(entry_date)
+        market_current = _theoretical_rub_price()  # today
+        market_pnl = ((market_current - market_entry) / market_entry) if market_entry > 0 else 0.0
+
+        advice, reason = _advise_position(p, current_price, p_smooth)
+
+        positions_out.append({
+            "id": p["id"], "ticker": p["ticker"], "figi": p["figi"],
+            "opened_at": p["opened_at"], "entry_price": p["entry_price"],
+            "lots": p["lots"], "lot_size_g": p.get("lot_size_g", 100),
+            "peak_price": new_peak, "source": p.get("source", "user"),
+            "current_price": current_price, "days_held": days_held,
+            "unrealized_pnl_pct": pnl,
+            "market_pnl_pct": market_pnl,
+            "market_entry_price": market_entry,
+            "market_current_price": market_current,
+            "advice": advice, "advice_reason": reason,
+        })
+
+    # Persist peak updates
+    _save_positions(raw)
+    master, mreason, can_buy = _master_advise(raw, p_smooth)
+    return {
+        "positions_data": positions_out,
+        "master_signal": master, "master_reason": mreason,
+        "master_p_up": p_smooth, "n_open": len(positions_out),
+        "can_buy": can_buy,
+    }
+
+
 @router.get("/positions", response_model=PositionsResponse)
 def list_positions():
     """Все открытые позиции + master assistant + per-position advice."""
+    cached = _list_positions_cached()
+    positions_out = [Position(**p) for p in cached["positions_data"]]
+    return PositionsResponse(
+        positions=positions_out,
+        master_signal=cached["master_signal"],
+        master_reason=cached["master_reason"],
+        master_p_up=cached["master_p_up"],
+        n_open=cached["n_open"],
+        can_buy=cached["can_buy"],
+    )
+
+
+def _list_positions_OLD_BACKUP():
+    """Старая версия без кеша — сохранена на всякий случай."""
     raw = _load_positions()
     current_price = _current_silver_price()
     p_smooth = _current_p_up_smoothed()

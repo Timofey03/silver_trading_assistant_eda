@@ -231,6 +231,9 @@ export interface PositionRecord {
   current_price: number;
   days_held: number;
   unrealized_pnl_pct: number;
+  market_pnl_pct?: number;
+  market_entry_price?: number;
+  market_current_price?: number;
   advice: "HOLD" | "SELL";
   advice_reason: string;
 }

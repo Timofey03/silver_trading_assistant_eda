@@ -45,6 +45,88 @@ EMERALD     = "#10b981"
 ROSE        = "#f43f5e"
 AMBER       = "#f59e0b"
 API_BASE = os.getenv("ARGENTUM_API", "http://127.0.0.1:8000")
+REPO_ROOT_LOCAL = Path(__file__).resolve().parent.parent
+
+
+def _read_signal_from_files() -> dict:
+    """Прямое чтение signal.json без backend — для GitHub Actions."""
+    trading = REPO_ROOT_LOCAL / "daily_reports" / "e3b" / "trading"
+    if not trading.exists():
+        return {}
+    dirs = sorted([d for d in trading.iterdir() if d.is_dir()], reverse=True)
+    # Smoothed по 3 последним
+    sigs = []
+    for d in dirs[:3]:
+        f = d / "signal.json"
+        if f.exists():
+            try:
+                sigs.append(json.loads(f.read_text(encoding="utf-8")))
+            except Exception:
+                continue
+    if not sigs:
+        return {}
+    latest = sigs[0]
+    p_ups = [float(s.get("p_up", 0)) for s in sigs if s.get("p_up") is not None]
+    smoothed = sum(p_ups) / len(p_ups) if p_ups else 0
+    date_str = str(latest.get("date", ""))
+    if "T" in date_str:
+        date_str = date_str.split("T")[0]
+    return {
+        "signal":  latest.get("signal", "HOLD"),
+        "date":    date_str,
+        "close":   float(latest.get("close", 0)),
+        "p_up":    smoothed,   # smoothed для consistency с UI
+    }
+
+
+def _read_positions_from_files() -> dict:
+    """Прямое чтение positions из SQLite или JSON — для GitHub Actions."""
+    import sqlite3
+    db = REPO_ROOT_LOCAL / "argentum" / "backend" / "data" / "argentum.db"
+    js = REPO_ROOT_LOCAL / "argentum" / "backend" / "data" / "positions.json"
+    positions = []
+    if db.exists():
+        try:
+            conn = sqlite3.connect(str(db))
+            conn.row_factory = sqlite3.Row
+            for r in conn.execute("SELECT * FROM positions"):
+                positions.append(dict(r))
+            conn.close()
+        except Exception:
+            pass
+    elif js.exists():
+        try:
+            positions = json.loads(js.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    # Master signal — без backend нечего сказать, ставим WAIT
+    return {
+        "positions":     positions,
+        "master_signal": "WAIT",
+        "master_p_up":   0.0,
+        "master_reason": "computed locally (no backend)",
+        "n_open":        len(positions),
+        "can_buy":       False,
+    }
+
+
+def _api_with_fallback(path: str) -> dict:
+    """Сначала backend, если не отвечает — fallback на прямое чтение файлов."""
+    try:
+        result = _api(path)
+        # Если backend вернул valid data (не дефолтные нули) — используем
+        if path == "/api/signal" and result.get("close", 0) > 0:
+            return result
+        if path == "/api/positions" and "positions" in result:
+            return result
+    except Exception:
+        pass
+    # Fallback
+    if path == "/api/signal":
+        return _read_signal_from_files()
+    if path == "/api/positions":
+        return _read_positions_from_files()
+    return {}
 
 
 def _api(path: str) -> dict:
@@ -63,8 +145,8 @@ def generate_portfolio_png() -> bytes:
     3. Таблица позиций с P&L и советом
     """
     # Get state from API
-    sig = _api("/api/signal")
-    pos = _api("/api/positions")
+    sig = _api_with_fallback("/api/signal")
+    pos = _api_with_fallback("/api/positions")
     positions = pos.get("positions", [])
 
     sig_value = sig.get("signal", "HOLD")
@@ -251,8 +333,8 @@ def send_portfolio_chart() -> bool:
 
     png = generate_portfolio_png()
 
-    sig = _api("/api/signal")
-    pos = _api("/api/positions")
+    sig = _api_with_fallback("/api/signal")
+    pos = _api_with_fallback("/api/positions")
     positions = pos.get("positions", [])
     n_open = len(positions)
 

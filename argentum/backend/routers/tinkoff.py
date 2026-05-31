@@ -11,6 +11,8 @@ import requests
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from cache import ttl_cache
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 ACCOUNT_FILE = REPO_ROOT / "baseline_outputs_v23" / "v23_sandbox_account.json"
 
@@ -61,7 +63,7 @@ class OrderResponse(BaseModel):
 # REST helper
 # ---------------------------------------------------------------------------
 
-def _call(service: str, method: str, body: dict, timeout: int = 15) -> dict:
+def _call(service: str, method: str, body: dict, timeout: int = 5) -> dict:
     """POST к Tinkoff Invest REST API v2."""
     token = os.getenv("TINKOFF_TOKEN", "").strip()
     if not token:
@@ -129,9 +131,20 @@ def _find_figi(ticker: str) -> str:
 router = APIRouter()
 
 
+@ttl_cache(ttl_seconds=120)
+def _cached_balance() -> TinkoffBalance:
+    """Internal — cached на 2 минуты."""
+    return _compute_balance()
+
+
 @router.get("/tinkoff/balance", response_model=TinkoffBalance)
 def get_balance():
-    """Live баланс из Tinkoff sandbox (без SDK, через REST)."""
+    """Live баланс из Tinkoff sandbox (cached 2 мин)."""
+    return _cached_balance()
+
+
+def _compute_balance():
+    """Live баланс — внутренняя функция, без кеша."""
     try:
         acc_id = _load_account_id()
         portfolio = _call(SANDBOX, "GetSandboxPortfolio", {"accountId": acc_id})

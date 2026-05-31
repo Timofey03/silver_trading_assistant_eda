@@ -45,6 +45,25 @@ if _restored:
     print(f"[cache] restored {_restored} entries from disk")
 atexit.register(cache_save_to_disk)
 
+
+@app.on_event("startup")
+async def _prefetch_heavy_data():
+    """Background prefetch при старте — прогрев Tinkoff/positions кеша."""
+    import asyncio
+    async def _warmup():
+        await asyncio.sleep(2)  # дать app полностью стартовать
+        try:
+            from routers.positions import _list_positions_cached
+            from routers.tinkoff import _cached_balance
+            print("[prefetch] warming positions cache...")
+            _list_positions_cached()
+            print("[prefetch] warming balance cache...")
+            _cached_balance()
+            print("[prefetch] cache warm ✓")
+        except Exception as e:
+            print(f"[prefetch] failed: {e}")
+    asyncio.create_task(_warmup())
+
 # CORS для Next.js dev server (port 3000)
 app.add_middleware(
     CORSMiddleware,
