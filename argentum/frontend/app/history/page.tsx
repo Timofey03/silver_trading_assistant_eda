@@ -87,10 +87,10 @@ function OpenPositionCard({ pos }: { pos: OpenPositionResponse }) {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
               </span>
-              <span>Позиция открыта · BUY</span>
+              <span>BACKTEST симуляция · BUY</span>
             </div>
             <h2 className="text-xl font-medium tracking-tight text-[var(--text-primary)]">
-              Помощник сейчас в сделке
+              Модель «была бы» в сделке (симуляция)
             </h2>
           </div>
           <div className="text-right">
