@@ -42,7 +42,7 @@ const variants = {
     gradient: "from-amber-500/[0.06] to-transparent",
     glow: "",
     border: "border-amber-500/20",
-    cta: "",
+    cta: "Купить вручную (модель не рекомендует)",
   },
 } as const;
 
@@ -108,9 +108,14 @@ export default function HeroSignal({ signal }: { signal: SignalResponse }) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.4, duration: 0.5 }}
-          className="absolute top-6 right-6 font-[family-name:var(--font-mono)] text-[11px] text-[var(--text-faint)]"
+          className="absolute top-6 right-6 font-[family-name:var(--font-mono)] text-[11px] text-right space-y-0.5"
         >
-          {signal.date}
+          <div className="text-[var(--text-secondary)]">
+            {new Date().toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" })}
+          </div>
+          <div className="text-[var(--text-faint)] text-[10px]" title="Дата последнего close серебра (yfinance публикует с задержкой)">
+            данные: {signal.date}
+          </div>
         </motion.div>
 
         {/* Icon */}
@@ -170,7 +175,7 @@ export default function HeroSignal({ signal }: { signal: SignalResponse }) {
           </div>
         </motion.div>
 
-        {/* CTA — Купить через Tinkoff */}
+        {/* CTA — Купить через Tinkoff (приглушено при HOLD) */}
         {v.cta && (
           <motion.button
             initial={{ opacity: 0, y: 10 }}
@@ -179,7 +184,11 @@ export default function HeroSignal({ signal }: { signal: SignalResponse }) {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => setConfirmOpen(true)}
-            className={`mt-10 inline-flex items-center gap-2 px-6 py-3 rounded-xl border border-[var(--border)] bg-[var(--bg-base)] hover:bg-[var(--bg-subtle)] text-sm font-medium text-[var(--text-primary)] transition-colors`}
+            className={`mt-10 inline-flex items-center gap-2 px-6 py-3 rounded-xl border transition-colors ${
+              effectiveSignal === "HOLD"
+                ? "border-[var(--border-soft)] bg-transparent hover:bg-[var(--bg-subtle)]/50 text-[var(--text-muted)] text-xs font-normal"
+                : "border-[var(--border)] bg-[var(--bg-base)] hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] text-sm font-medium"
+            }`}
           >
             <span>{v.cta}</span>
             <span className="text-[var(--text-faint)] text-xs">→ sandbox</span>

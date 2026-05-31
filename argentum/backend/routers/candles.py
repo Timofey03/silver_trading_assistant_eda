@@ -107,15 +107,22 @@ def get_candles(
 
     # === Our live OPEN positions from SQLite tracker ===
     live_positions = []
-    current_market_rub: dict[str, float] = {}
+    market_entry_rub: dict[str, float] = {}    # theoretical RUB at entry date
+    market_now_rub: float = 0.0                 # theoretical RUB now
     try:
         import sys
         sys.path.insert(0, str(REPO_ROOT / "argentum" / "backend"))
         import db as positions_db
-        from routers.positions import _current_silver_price_rub
+        from routers.positions import _theoretical_rub_price
+        from datetime import datetime as _dt
         live_positions = positions_db.list_positions()
+        market_now_rub = _theoretical_rub_price()
         for pos in live_positions:
-            current_market_rub[pos["figi"]] = _current_silver_price_rub(pos["figi"])
+            try:
+                ed = _dt.fromisoformat(str(pos["opened_at"]).replace("Z","").split("_")[0]).date()
+                market_entry_rub[pos["id"]] = _theoretical_rub_price(ed)
+            except Exception:
+                market_entry_rub[pos["id"]] = 0.0
     except Exception:
         live_positions = []
 
@@ -123,6 +130,10 @@ def get_candles(
         silver_df = pd.read_parquet(SILVER_CACHE) if SILVER_CACHE.exists() else None
         current_silver_usd = float(silver_df["close"].iloc[-1]) if silver_df is not None and len(silver_df) else 0
         for pos in live_positions:
+            # Skip synced positions — opened_at = today() is misleading
+            # (real entry was earlier, only avg_price known from Tinkoff)
+            if pos.get("source") == "tinkoff_sync":
+                continue
             try:
                 entry_d = pd.to_datetime(str(pos["opened_at"]).replace("Z", "").split("_")[0])
             except Exception:
@@ -140,15 +151,20 @@ def get_candles(
                 except Exception:
                     pass
             usd_at_entry = usd_at_entry or current_silver_usd
-            # Compute live P&L (в RUB через Tinkoff GetLastPrices)
-            entry_rub = float(pos.get("entry_price", 0))
-            current_rub = current_market_rub.get(pos["figi"], 0) or float(pos.get("peak_price", entry_rub))
-            pnl_pct = ((current_rub - entry_rub) / entry_rub * 100) if entry_rub else 0
+            # Market P&L (live серебро без sandbox slippage)
+            m_entry = market_entry_rub.get(pos["id"], 0)
+            if m_entry > 0 and market_now_rub > 0:
+                pnl_pct = (market_now_rub - m_entry) / m_entry * 100
+            else:
+                # Fallback на sandbox если не смогли посчитать market
+                entry_rub = float(pos.get("entry_price", 0))
+                current_rub = float(pos.get("peak_price", entry_rub))
+                pnl_pct = ((current_rub - entry_rub) / entry_rub * 100) if entry_rub else 0
             markers.append(Marker(
                 time=entry_d.strftime("%Y-%m-%d"),
                 price=usd_at_entry,
-                type="OPEN",  # наш отдельный тип
-                text=f"АКТИВНА {pnl_pct:+.1f}%",
+                type="OPEN",
+                text=f"АКТИВНА {pnl_pct:+.2f}%",   # +.2f показывает "+1.47" корректно
                 return_pct=pnl_pct,
             ))
 

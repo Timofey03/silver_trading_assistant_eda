@@ -139,11 +139,13 @@ export default function CandleChart({ period: extPeriod, onPeriodChange }: Props
     if (data.markers.length) {
       const markers: SeriesMarker<Time>[] = data.markers.map((m) => {
         if (m.type === "OPEN") {
-          // Наша активная позиция — большой amber-круг
+          // Наша активная позиция — круг, цвет зависит от P&L
+          const pnl = m.return_pct ?? 0;
+          const openColor = pnl > 0 ? "#10b981" : pnl < 0 ? "#f43f5e" : "#f59e0b";
           return {
             time:     m.time as Time,
             position: "belowBar" as const,
-            color:    "#f59e0b",     // amber
+            color:    openColor,
             shape:    "circle" as const,
             text:     m.text || "АКТИВНА",
             size:     2,

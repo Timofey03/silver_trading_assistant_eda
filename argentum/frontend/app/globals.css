@@ -100,6 +100,11 @@ html { scroll-behavior: smooth; }
   100% { background-position: 200% 0; }
 }
 
+@keyframes confettiFall {
+  0%   { transform: translateY(-10px) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+}
+
 /* Hover-lift utility */
 .lift-on-hover {
   transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s, box-shadow 0.25s;

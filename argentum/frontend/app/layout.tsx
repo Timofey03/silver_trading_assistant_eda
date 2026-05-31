@@ -3,6 +3,7 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
 import ThemeToggle from "@/components/ThemeToggle";
+import PushNotifications from "@/components/PushNotifications";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -49,6 +50,7 @@ export default function RootLayout({
               <NavLink href="/history" label="История" />
               <NavLink href="/methodology" label="Методология" />
               <NavLink href="/settings" label="Настройки" />
+              <PushNotifications />
               <ThemeToggle />
             </nav>
           </div>
