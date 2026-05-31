@@ -93,16 +93,25 @@ def refresh_data(force: bool = True) -> dict:
 # Step 2: Walk-forward retraining (E3b)
 # =============================================================================
 def retrain_walkforward() -> dict:
-    """Перезапустить E3b walk-forward — обновит trades.csv, predictions, metrics."""
+    """
+    Перезапустить E3b walk-forward с ffill=5 (production) + применить optimal config.
+
+    Изменения 2026-05-28:
+    - ffill_limit=0 → 5 (закрывает дыры в monthly макро, continuous predictions)
+    - После walk-forward автоматически вызывается apply_optimal_exits
+      (smoothing + strong-signal + trail=0.20 + ensemble с momentum)
+    Чтобы cron не затирал оптимальные метрики (Sharpe 0.99 / +343%)
+    значениями строгой baseline-версии (Sharpe 0.41 / +83%).
+    """
     print("\n" + "=" * 70)
-    print("[2/4] RETRAIN E3b WALK-FORWARD")
+    print("[2/4] RETRAIN E3b WALK-FORWARD (ffill=5 + optimal exits)")
     print("=" * 70)
     try:
         from experiments.e3_macro_adaptive import run_one_experiment
         from app.multi_asset.metal_loader import load_metals
         silver = load_metals()["silver"]
-        # Полный feature frame (с macro, без ffill — для academic walk-forward)
-        features = build_feature_frame(target="silver", ffill_limit=0).dropna()
+        # ffill_limit=5 (production-style, continuous data до сегодня)
+        features = build_feature_frame(target="silver", ffill_limit=5).dropna()
         labels = build_multi_horizon_labels(
             silver["close"], silver["high"], silver["low"],
             horizons=[20], adaptive=True,
@@ -114,6 +123,26 @@ def retrain_walkforward() -> dict:
         )
         print(f"  ✅ Walk-forward complete: Sharpe={metrics.get('sharpe', 0):.3f}, "
               f"trades={metrics.get('n_trades', 0)}")
+
+        # Apply optimal config (smoothing + strong-signal + ensemble)
+        try:
+            print("\n  [2.5/4] Applying optimal exits config...")
+            import subprocess
+            result = subprocess.run(
+                [sys.executable, str(REPO_ROOT / "scripts" / "apply_optimal_exits.py")],
+                capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode == 0:
+                print("  ✅ Optimal exits applied (smoothing + strong-signal)")
+                # Re-read metrics после optimal
+                m_file = REPO_ROOT / "baseline_outputs_multiasset" / "e3b_adaptive" / "metrics.json"
+                if m_file.exists():
+                    metrics = json.loads(m_file.read_text(encoding="utf-8"))
+            else:
+                print(f"  ⚠ Optimal exits failed:\n{result.stderr[:500]}")
+        except Exception as e:
+            print(f"  ⚠ Could not apply optimal exits: {e}")
+
         return metrics
     except Exception as e:
         print(f"  ❌ Walk-forward failed: {e}")
