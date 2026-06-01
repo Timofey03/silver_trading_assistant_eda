@@ -517,9 +517,10 @@ def generate_portfolio_png() -> bytes:
             y = 0.65 - i * 0.13
             if y < 0.05: break
 
-            entry_price = float(p.get("entry_price", 0))
-            current_price = float(p.get("current_price", 0))
-            # Используем market_pnl_pct (близкое к реальной бирже), fallback на unrealized_pnl_pct
+            # Используем market-based цены (без sandbox-spread, как реальная биржа MOEX).
+            # Fallback на sandbox entry/current если market-цены недоступны.
+            entry_price = float(p.get("market_entry_price", 0)) or float(p.get("entry_price", 0))
+            current_price = float(p.get("market_current_price", 0)) or float(p.get("current_price", 0))
             pnl_raw = p.get("market_pnl_pct")
             if pnl_raw is None or pnl_raw == 0:
                 pnl_raw = p.get("unrealized_pnl_pct", 0)
@@ -649,14 +650,11 @@ def send_portfolio_chart() -> bool:
             avg_pnl = sum(pnl_values) / len(pnl_values) * 100
             avg_sandbox = sum(sandbox_values) / len(sandbox_values) * 100 if sandbox_values else avg_pnl
             n_sell_advice = sum(1 for p in positions if p.get("advice") == "SELL")
-            # market P&L основной (теоретическая биржа), sandbox в скобках
-            sandbox_note = ""
-            if abs(avg_sandbox - avg_pnl) > 0.1:
-                sandbox_note = f"  <i>(sandbox: {avg_sandbox:+.2f}%)</i>"
+            # Market P&L (без sandbox-spread, как реальная биржа MOEX) — единственная метрика
             caption += (
                 f"\n💼 <b>Портфолио: {n_open}</b> "
                 f"{'позиция' if n_open == 1 else 'позиций'}\n"
-                f"📈 Средний P&L: <b>{avg_pnl:+.2f}%</b>{sandbox_note}\n"
+                f"📈 Средний P&L: <b>{avg_pnl:+.2f}%</b>\n"
             )
             if n_sell_advice:
                 caption += f"⚠ <b>{n_sell_advice}</b> с советом ПРОДАТЬ\n"

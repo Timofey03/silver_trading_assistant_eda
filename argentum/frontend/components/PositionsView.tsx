@@ -315,13 +315,17 @@ function PositionCard({
           </div>
 
           <div className="flex items-baseline gap-4 flex-wrap font-[family-name:var(--font-mono)] tabular-nums">
-            <div>
+            <div title="Теоретическая рыночная цена на момент входа (без sandbox slippage)">
               <span className="text-[var(--text-faint)] text-xs">вход </span>
-              <span className="text-[var(--text-secondary)]">{formatRub(position.entry_price)}</span>
+              <span className="text-[var(--text-secondary)]">
+                {formatRub(position.market_entry_price ?? position.entry_price)}
+              </span>
             </div>
-            <div>
+            <div title="Теоретическая рыночная цена сейчас (live market без sandbox slippage)">
               <span className="text-[var(--text-faint)] text-xs">сейчас </span>
-              <span className="text-[var(--text-primary)] font-medium">{formatRub(position.current_price)}</span>
+              <span className="text-[var(--text-primary)] font-medium">
+                {formatRub(position.market_current_price ?? position.current_price)}
+              </span>
             </div>
             <div title="P&L по реальной цене серебра (live market, без sandbox slippage)">
               <span className="text-[var(--text-faint)] text-xs">P&L </span>
@@ -338,8 +342,8 @@ function PositionCard({
             <div className="ml-auto">
               <PositionSparkline
                 openedAt={position.opened_at}
-                entryPrice={position.entry_price}
-                currentPrice={position.current_price}
+                entryPrice={position.market_entry_price ?? position.entry_price}
+                currentPrice={position.market_current_price ?? position.current_price}
               />
             </div>
           </div>
