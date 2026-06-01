@@ -160,6 +160,101 @@ def _read_positions_from_tinkoff() -> list[dict]:
         return []
 
 
+def _theoretical_rub_price(silver_usd_close: float, usdrub: float,
+                            lot_size_g: int = 100) -> float:
+    """Цена 1 лота в рублях из формулы: USD цена силвера × USDRUB × г/oz.
+
+    Формула повторяет логику argentum/backend/routers/positions.py
+    (_theoretical_rub_price). 1 oz = 31.1035 г.
+    """
+    if silver_usd_close <= 0 or usdrub <= 0:
+        return 0.0
+    return silver_usd_close * usdrub * lot_size_g / 31.1035
+
+
+def _compute_position_pnl(position: dict) -> dict:
+    """Рассчитать current_price, market_pnl_pct и advice для позиции
+    локально, без backend. Используется в fallback-режиме (cron).
+
+    Читает silver_daily.parquet и USDRUB.parquet, считает теоретическую
+    рублёвую цену на дату входа и сегодня, выводит P&L.
+    """
+    out = dict(position)  # копия
+    silver_path = REPO_ROOT_LOCAL / "data" / "multi_asset" / "metals" / "silver_daily.parquet"
+    usdrub_path = REPO_ROOT_LOCAL / "data" / "multi_asset" / "macro" / "USDRUB.parquet"
+
+    if not silver_path.exists() or not usdrub_path.exists():
+        return out
+
+    try:
+        silver = pd.read_parquet(silver_path)
+        usdrub = pd.read_parquet(usdrub_path)
+
+        # Авто-детект колонки value у USDRUB
+        usdrub_col = None
+        for c in usdrub.columns:
+            if pd.api.types.is_numeric_dtype(usdrub[c]):
+                usdrub_col = c
+                break
+        if usdrub_col is None:
+            return out
+
+        # Подготовить серии по датам
+        silver_ts = silver["close"].copy()
+        usdrub_ts = usdrub[usdrub_col].copy()
+
+        # Сегодняшние значения (последняя доступная свеча)
+        s_today = float(silver_ts.iloc[-1])
+        u_today = float(usdrub_ts.iloc[-1])
+
+        # Цена на дату входа
+        opened_at = position.get("opened_at", "")
+        if "T" in str(opened_at):
+            entry_date = pd.Timestamp(str(opened_at).split("T")[0])
+        else:
+            entry_date = pd.Timestamp(str(opened_at))
+
+        s_entry_series = silver_ts[silver_ts.index <= entry_date]
+        u_entry_series = usdrub_ts[usdrub_ts.index <= entry_date]
+        s_entry = float(s_entry_series.iloc[-1]) if len(s_entry_series) else s_today
+        u_entry = float(u_entry_series.iloc[-1]) if len(u_entry_series) else u_today
+
+        lot_size_g = int(position.get("lot_size_g", 100))
+        market_entry = _theoretical_rub_price(s_entry, u_entry, lot_size_g)
+        market_now = _theoretical_rub_price(s_today, u_today, lot_size_g)
+
+        # current_price — теоретическая текущая (рыночная)
+        out["current_price"] = market_now
+        out["market_entry_price"] = market_entry
+        out["market_current_price"] = market_now
+
+        # P&L: 2 варианта
+        entry_user = float(position.get("entry_price", 0))  # что пользователь записал (Tinkoff sandbox)
+        if entry_user > 0 and market_now > 0:
+            out["unrealized_pnl_pct"] = (market_now - entry_user) / entry_user
+        if market_entry > 0 and market_now > 0:
+            out["market_pnl_pct"] = (market_now - market_entry) / market_entry
+
+        # Простой совет на основе peak / trailing stop
+        peak = float(position.get("peak_price", entry_user))
+        if market_now > peak:
+            peak = market_now
+        out["peak_price"] = peak
+        trail_pct = 0.20
+        trail_stop = peak * (1 - trail_pct)
+        if market_now < trail_stop:
+            out["advice"] = "SELL"
+            out["advice_reason"] = f"trailing stop ₽{trail_stop:.0f} пробит"
+        else:
+            out["advice"] = "HOLD"
+            out["advice_reason"] = f"peak ₽{peak:.0f}, trail ₽{trail_stop:.0f}"
+
+        return out
+    except Exception as e:
+        print(f"[telegram] _compute_position_pnl failed: {e}")
+        return out
+
+
 def _read_positions_from_files() -> dict:
     """Прямое чтение positions без backend — для GitHub Actions.
 
@@ -167,6 +262,9 @@ def _read_positions_from_files() -> dict:
     1. SQLite (argentum.db) — позиции пользователя локально
     2. positions.json — legacy JSON
     3. Tinkoff sandbox API — реальные позиции на бирже (для cron в облаке)
+
+    Для всех источников P&L и current_price рассчитываются локально из
+    silver_daily.parquet + USDRUB.parquet (без обращения к backend).
     """
     import sqlite3
     db = REPO_ROOT_LOCAL / "argentum" / "backend" / "data" / "argentum.db"
@@ -201,13 +299,21 @@ def _read_positions_from_files() -> dict:
             positions = tinkoff_positions
             source = "tinkoff_sandbox"
 
+    # Обогащение P&L локально из parquet (для всех источников где нет)
+    positions = [
+        _compute_position_pnl(p) if "current_price" not in p or not p.get("current_price")
+        else p
+        for p in positions
+    ]
+
     reason_map = {
-        "sqlite":          "из локальной БД (backend не подключён)",
-        "json":            "из positions.json (backend не подключён)",
-        "tinkoff_sandbox": "из Tinkoff sandbox (backend не подключён)",
-        "no_data":         "computed locally (no backend)",
+        "sqlite":          "из локальной БД + P&L посчитан локально",
+        "json":            "из positions.json + P&L посчитан локально",
+        "tinkoff_sandbox": "из Tinkoff sandbox",
+        "no_data":         "позиций нет",
     }
 
+    # master_p_up подсчитаем потом в send_portfolio_chart, тут оставим 0
     return {
         "positions":     positions,
         "master_signal": "WAIT",
@@ -258,7 +364,15 @@ def generate_portfolio_png() -> bytes:
     pos = _api_with_fallback("/api/positions")
     positions = pos.get("positions", [])
 
-    sig_value = sig.get("signal", "HOLD")
+    # Применяем strong-filter (≥ 0.85) для синхронности с UI:
+    # raw signal=BUY превращается в HOLD, если уверенность ниже 85%.
+    raw_signal = sig.get("signal", "HOLD")
+    smoothed_p_up = float(pos.get("master_p_up", 0)) or float(sig.get("p_up", 0))
+    STRONG_THRESHOLD = 0.85
+    if raw_signal == "BUY" and smoothed_p_up < STRONG_THRESHOLD:
+        sig_value = "HOLD"
+    else:
+        sig_value = raw_signal
     # p_up берём из POSITIONS endpoint (master_p_up — синхронизирован с UI)
     # Fallback: signal endpoint (тоже smoothed теперь)
     p_up = float(pos.get("master_p_up", 0)) or float(sig.get("p_up", 0))
@@ -388,11 +502,32 @@ def generate_portfolio_png() -> bytes:
         for i, p in enumerate(positions):
             y = 0.65 - i * 0.13
             if y < 0.05: break
-            pnl = float(p.get("unrealized_pnl_pct", 0))
-            advice = p.get("advice", "—")
-            advice_color = EMERALD if advice == "HOLD" else ROSE
-            pnl_color = EMERALD if pnl >= 0 else ROSE
 
+            entry_price = float(p.get("entry_price", 0))
+            current_price = float(p.get("current_price", 0))
+            # Используем market_pnl_pct (близкое к реальной бирже), fallback на unrealized_pnl_pct
+            pnl_raw = p.get("market_pnl_pct")
+            if pnl_raw is None or pnl_raw == 0:
+                pnl_raw = p.get("unrealized_pnl_pct", 0)
+            pnl = float(pnl_raw or 0)
+            advice = p.get("advice", "—")
+            has_data = current_price > 0
+
+            # Цвета — если данных нет, всё серое
+            if not has_data:
+                pnl_color = TEXT_MUTED
+                advice_label = "—"
+                advice_color = TEXT_MUTED
+            else:
+                pnl_color = EMERALD if pnl >= 0 else ROSE
+                advice_label = "ДЕРЖАТЬ" if advice == "HOLD" else (
+                    "ПРОДАТЬ" if advice == "SELL" else "—"
+                )
+                advice_color = EMERALD if advice == "HOLD" else (
+                    ROSE if advice == "SELL" else TEXT_MUTED
+                )
+
+            # Используем DejaVu Sans (а не monospace) — у Mono нет глифа ₽ (U+20BD)
             ax_t.text(col_x[0], y, f"#{i+1}", ha="left", va="center",
                       fontsize=9, color=TEXT_PRIM, family="monospace",
                       transform=ax_t.transAxes)
@@ -400,21 +535,23 @@ def generate_portfolio_png() -> bytes:
                       ha="left", va="center", fontsize=8,
                       color=TEXT_MUTED, family="monospace",
                       transform=ax_t.transAxes)
-            ax_t.text(col_x[2], y, f"₽{p.get('entry_price', 0):,.0f}",
+            entry_str = f"₽{entry_price:,.0f}".replace(",", " ") if entry_price > 0 else "—"
+            ax_t.text(col_x[2], y, entry_str,
                       ha="left", va="center", fontsize=9,
-                      color=TEXT_PRIM, family="monospace",
+                      color=TEXT_PRIM, fontname="DejaVu Sans",
                       transform=ax_t.transAxes)
-            ax_t.text(col_x[3], y, f"₽{p.get('current_price', 0):,.0f}",
+            current_str = f"₽{current_price:,.0f}".replace(",", " ") if has_data else "—"
+            ax_t.text(col_x[3], y, current_str,
                       ha="left", va="center", fontsize=9,
-                      color=TEXT_PRIM, family="monospace",
+                      color=TEXT_PRIM if has_data else TEXT_MUTED,
+                      fontname="DejaVu Sans",
                       transform=ax_t.transAxes)
-            ax_t.text(col_x[4], y,
-                      f"{'+' if pnl > 0 else ''}{pnl*100:.2f}%",
+            pnl_str = f"{'+' if pnl > 0 else ''}{pnl*100:.2f}%" if has_data else "—"
+            ax_t.text(col_x[4], y, pnl_str,
                       ha="left", va="center", fontsize=9,
                       color=pnl_color, family="monospace", fontweight="bold",
                       transform=ax_t.transAxes)
-            ax_t.text(col_x[5], y,
-                      ("ДЕРЖАТЬ" if advice == "HOLD" else "ПРОДАТЬ"),
+            ax_t.text(col_x[5], y, advice_label,
                       ha="left", va="center", fontsize=9,
                       color=advice_color, family="monospace", fontweight="bold",
                       transform=ax_t.transAxes)

@@ -433,11 +433,25 @@ def send_telegram(signal_info: dict, metrics: dict) -> None:
 
     Сначала пробуем PNG-чарт через app.telegram_chart (красиво).
     Если matplotlib/requests упали — fallback на старый sendMessage.
+
+    ВАЖНО: отправляем только при СМЕНЕ сигнала (alert_type == "action").
+    Info-сообщения (та же команда BUY/HOLD/SELL что и вчера) НЕ шлём —
+    это спам в TG. Cron 3 раза в день нужен для мониторинга данных, но
+    уведомления должны быть только при реальной смене состояния.
     """
     token = os.getenv("TG_BOT_TOKEN")
     chat_id = os.getenv("TG_CHAT_ID")
     if not token or not chat_id:
         print("  (Telegram credentials отсутствуют, skip)")
+        return
+
+    # === Дедупликация: пропускаем info-сообщения ===
+    alert_type = signal_info.get("alert_type", "action")
+    is_repeat = signal_info.get("is_repeat", False)
+    # Принудительный режим через env (для тестов): FORCE_TG_SEND=1
+    force = os.getenv("FORCE_TG_SEND", "").strip() == "1"
+    if (alert_type == "info" or is_repeat) and not force:
+        print(f"  (Telegram: alert_type={alert_type}, is_repeat={is_repeat} — info skip)")
         return
 
     # === Попытка №1: Portfolio PNG (master signal + positions) ===
