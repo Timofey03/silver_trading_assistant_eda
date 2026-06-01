@@ -12,7 +12,6 @@ import { formatPct, formatUsd, formatRub } from "@/lib/utils";
 import { Sparkles } from "lucide-react";
 import HeroSignal from "@/components/HeroSignal";
 import PositionSummaryCard from "@/components/PositionSummaryCard";
-import PositionCalculator from "@/components/PositionCalculator";
 import FeatureContribution from "@/components/FeatureContribution";
 
 export const revalidate = 60;
@@ -50,7 +49,6 @@ export default async function HomePage() {
       <PositionSummaryCard />
       <PriceCard price={price} fx={fx} />
       <FeatureContribution />
-      <PositionCalculator />
       <ExplainSection explain={explain} signal={signal} />
     </div>
   );
@@ -67,11 +65,16 @@ function PriceCard({ price, fx }: { price: PriceResponse; fx: FxRates }) {
   return (
     <section className="grid gap-8 md:grid-cols-[1fr_2fr] items-center rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] px-8 py-7 hover:border-[var(--text-faint)]/30 transition-colors">
       <div className="space-y-1.5">
-        <div className="text-[11px] uppercase tracking-widest text-[var(--text-faint)]">
-          {price.ticker} · Silver Futures
+        <div
+          className="text-[11px] uppercase tracking-widest text-[var(--text-faint)]"
+          title="Текущая рыночная цена 1 лота фьючерса SLVRUBF на Московской бирже. Рассчитывается из мировой цены серебра (CME Comex) с учётом курса USDRUB."
+        >
+          Серебро · цена лота на бирже
         </div>
-        <div className="font-[family-name:var(--font-mono)] text-4xl font-medium tracking-tight">
-          {formatUsd(price.current)}
+        <div className="font-[family-name:var(--font-mono)] text-4xl font-medium tracking-tight tabular-nums">
+          {fx.rub_silver > 0
+            ? `${formatRub(fx.rub_silver * 100 / 31.1035)}`
+            : "—"}
         </div>
         <div
           className="inline-flex items-center gap-1 text-sm font-medium font-[family-name:var(--font-mono)]"
@@ -80,25 +83,9 @@ function PriceCard({ price, fx }: { price: PriceResponse; fx: FxRates }) {
           <span>{isUp ? "▲" : "▼"}</span>
           {formatPct(price.change_pct)}
         </div>
-        {fx.usdrub > 0 && (
-          <div className="pt-2 mt-2 border-t border-[var(--border-soft)] space-y-0.5">
-            <div className="text-[11px] uppercase tracking-widest text-[var(--text-faint)]">
-              эквивалент в ₽ (для Tinkoff)
-            </div>
-            <div className="font-[family-name:var(--font-mono)] text-base text-[var(--text-secondary)] tabular-nums">
-              {formatRub(fx.rub_silver)} / oz
-            </div>
-            <div className="text-[11px] text-[var(--text-faint)] font-[family-name:var(--font-mono)]">
-              USDRUB ₽{fx.usdrub.toFixed(2)}{" "}
-              <span className={fx.usdrub_change_5d_pct >= 0 ? "text-emerald-400/70" : "text-rose-400/70"}>
-                {fx.usdrub_change_5d_pct >= 0 ? "+" : ""}{fx.usdrub_change_5d_pct.toFixed(2)}% 5d
-              </span>
-              {fx.fx_volatility_flag && (
-                <span className="ml-2 text-amber-400/80">⚠ FX-шум</span>
-              )}
-            </div>
-          </div>
-        )}
+        <div className="text-[11px] text-[var(--text-faint)] font-[family-name:var(--font-mono)] pt-1">
+          1 лот = 100 г серебра · ≈ {formatUsd(price.current)}/унция
+        </div>
       </div>
 
       <div className="h-24 relative">
