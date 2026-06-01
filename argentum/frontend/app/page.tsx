@@ -86,11 +86,11 @@ function PriceCard({ price, fx }: { price: PriceResponse; fx: FxRates }) {
           {price.sparkline.length > 1 && (
             <span
               className="text-[11px] text-[var(--text-faint)] font-normal"
-              title={`Сравнение текущей цены с закрытием предыдущего торгового дня (${price.sparkline[price.sparkline.length - 2]?.date ?? "?"})`}
+              title={`Изменение текущей цены относительно цены за предыдущий торговый день (${price.sparkline[price.sparkline.length - 2]?.date ?? "?"})`}
             >
-              с предыдущего закрытия
+              по сравнению с ценой
               {price.sparkline[price.sparkline.length - 2]?.date
-                ? ` (${new Date(price.sparkline[price.sparkline.length - 2].date).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })})`
+                ? ` ${new Date(price.sparkline[price.sparkline.length - 2].date).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}`
                 : ""}
             </span>
           )}
