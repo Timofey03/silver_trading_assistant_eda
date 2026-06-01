@@ -77,11 +77,23 @@ function PriceCard({ price, fx }: { price: PriceResponse; fx: FxRates }) {
             : "—"}
         </div>
         <div
-          className="inline-flex items-center gap-1 text-sm font-medium font-[family-name:var(--font-mono)]"
-          style={{ color }}
+          className="inline-flex items-baseline gap-2 text-sm font-medium font-[family-name:var(--font-mono)]"
         >
-          <span>{isUp ? "▲" : "▼"}</span>
-          {formatPct(price.change_pct)}
+          <span style={{ color }} className="inline-flex items-center gap-1">
+            <span>{isUp ? "▲" : "▼"}</span>
+            {formatPct(price.change_pct)}
+          </span>
+          {price.sparkline.length > 1 && (
+            <span
+              className="text-[11px] text-[var(--text-faint)] font-normal"
+              title={`Сравнение текущей цены с закрытием предыдущего торгового дня (${price.sparkline[price.sparkline.length - 2]?.date ?? "?"})`}
+            >
+              с предыдущего закрытия
+              {price.sparkline[price.sparkline.length - 2]?.date
+                ? ` (${new Date(price.sparkline[price.sparkline.length - 2].date).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })})`
+                : ""}
+            </span>
+          )}
         </div>
         <div className="text-[11px] text-[var(--text-faint)] font-[family-name:var(--font-mono)] pt-1">
           1 лот = 100 г серебра · ≈ {formatUsd(price.current)}/унция
