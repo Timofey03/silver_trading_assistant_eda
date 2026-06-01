@@ -393,16 +393,45 @@ def generate_portfolio_png() -> bytes:
     sig_color = {"BUY": EMERALD, "SELL": ROSE, "HOLD": AMBER}.get(sig_value, TEXT_MUTED)
     sig_label = {"BUY": "ПОКУПАТЬ", "SELL": "ПРОДАВАТЬ", "HOLD": "ОЖИДАТЬ"}.get(sig_value, sig_value)
 
-    # Silver prices (30 дней — компактнее, понятнее)
+    # Silver prices в рублях за лот (RUB) — конвертация на каждую дату.
+    # Формула: rub_per_lot = USD_close × USDRUB(at_date) × 100 / 31.1035
     prices = None
     if SILVER_PARQUET.exists():
         try:
             df = pd.read_parquet(SILVER_PARQUET)
             from datetime import datetime, timedelta
             cutoff = pd.Timestamp(datetime.now() - timedelta(days=30))
-            prices = df[df.index >= cutoff].copy()
-        except Exception:
-            pass
+            df = df[df.index >= cutoff].copy()
+            # Подгружаем USDRUB и делаем merge_asof для каждой даты silver
+            usdrub_path = REPO_ROOT_LOCAL / "data" / "multi_asset" / "macro" / "USDRUB.parquet"
+            if usdrub_path.exists():
+                udf = pd.read_parquet(usdrub_path)
+                udf.columns = ["usdrub"] if len(udf.columns) == 1 else udf.columns
+                # Берём колонку с USDRUB значением
+                u_col = "usdrub" if "usdrub" in udf.columns else udf.columns[0]
+                # merge_asof — для каждой даты silver берём последний USDRUB не позже неё
+                merged = pd.merge_asof(
+                    df[["close"]].reset_index().sort_values("date"),
+                    udf[[u_col]].reset_index().rename(columns={"date": "u_date"}).sort_values("u_date"),
+                    left_on="date", right_on="u_date",
+                    direction="backward",
+                )
+                merged = merged.set_index("date")
+                # Если USDRUB NaN для каких-то дат — fill forward
+                merged[u_col] = merged[u_col].ffill().bfill()
+                # Рублёвая цена за 100-граммовый лот
+                merged["rub_per_lot"] = merged["close"] * merged[u_col] * 100 / 31.1035
+                # Заменяем "close" на rub-эквивалент чтобы остальной код работал без изменений
+                df["rub_close"] = merged["rub_per_lot"]
+                df["close"] = merged["rub_per_lot"]  # переопределяем для отрисовки
+            prices = df
+        except Exception as e:
+            print(f"[telegram] price conversion to RUB failed: {e}")
+            try:
+                prices = pd.read_parquet(SILVER_PARQUET)
+                prices = prices[prices.index >= cutoff].copy()
+            except Exception:
+                pass
 
     # Adaptive figure size — больше позиций = выше
     n_pos = len(positions)
@@ -463,38 +492,43 @@ def generate_portfolio_png() -> bytes:
         ax.fill_between(prices.index, prices["close"].min() * 0.97,
                         prices["close"], color=sig_color, alpha=0.06)
 
-        # Position entry markers — каждый ордер своей точкой
+        # Position entry markers — на рублёвой цене лота на дату входа
         for pi, p in enumerate(positions):
             entry_date = pd.to_datetime(p["opened_at"])
             if entry_date < prices.index.min():
                 continue
-            # Convert RUB to USD/oz approx via current rate
-            usd_silver = float(sig.get("close", 0))
+            # market_entry_price (₽ на дату входа); fallback на ближайший close из графика
+            rub_at_entry = float(p.get("market_entry_price", 0))
+            if rub_at_entry <= 0:
+                # Берём из графика ближайшую дату
+                idx_pos = prices.index.searchsorted(entry_date)
+                idx_pos = min(idx_pos, len(prices) - 1)
+                rub_at_entry = float(prices["close"].iloc[idx_pos])
             ax.axvline(x=entry_date, color=EMERALD, linestyle="--",
                        linewidth=0.8, alpha=0.5)
-            ax.scatter(entry_date, usd_silver, s=120, marker="^",
+            ax.scatter(entry_date, rub_at_entry, s=120, marker="^",
                        color=EMERALD, edgecolors=BG_BASE, linewidths=1.5,
                        zorder=10)
-            # Position label
             ax.annotate(f"#{pi+1}",
-                        xy=(entry_date, usd_silver),
+                        xy=(entry_date, rub_at_entry),
                         xytext=(0, -18), textcoords="offset points",
                         fontsize=8, color=EMERALD, ha="center",
                         fontweight="bold", family="monospace")
 
-        # Current price line — горизонталь по USD-уровню,
-        # но подпись справа показываем в ₽/лот (как на сайте: всё в рублях)
-        close = float(sig.get("close", 0))
-        if close > 0:
-            ax.axhline(y=close, color=sig_color, linestyle=":",
+        # Current price line — горизонталь на текущей рублёвой цене лота
+        if rub_per_lot > 0:
+            ax.axhline(y=rub_per_lot, color=sig_color, linestyle=":",
                        linewidth=1, alpha=0.5)
-            rub_label = (
-                f"  ₽{rub_per_lot:,.0f}".replace(",", " ")
-                if rub_per_lot > 0 else f"  ${close:.2f}"
-            )
-            ax.text(prices.index[-1], close, rub_label,
+            rub_label = f"  ₽{rub_per_lot:,.0f}".replace(",", " ")
+            ax.text(prices.index[-1], rub_per_lot, rub_label,
                     color=sig_color, fontsize=9, va="center",
                     fontname="DejaVu Sans", fontweight="bold")
+
+    # Y-axis форматирование: «₽5 393» с разделителем тысяч
+    from matplotlib.ticker import FuncFormatter
+    def _rub_formatter(x, _pos):
+        return f"₽{x:,.0f}".replace(",", " ")
+    ax.yaxis.set_major_formatter(FuncFormatter(_rub_formatter))
 
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
@@ -505,7 +539,7 @@ def generate_portfolio_png() -> bytes:
     ax.xaxis.set_major_locator(mdates.AutoDateLocator())
     ax.grid(True, color=BORDER, linestyle="-", linewidth=0.5, alpha=0.5)
     ax.set_axisbelow(True)
-    ax.text(0.0, 1.02, "Серебро · мировая цена за 30 дней · ▲ = твои входы",
+    ax.text(0.0, 1.02, "Серебро · цена лота за 30 дней · ▲ = твои входы",
             ha="left", va="bottom", fontsize=8, color=TEXT_FAINT,
             family="monospace", transform=ax.transAxes)
 
