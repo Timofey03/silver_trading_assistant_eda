@@ -49,12 +49,17 @@ REPO_ROOT_LOCAL = Path(__file__).resolve().parent.parent
 
 
 def _read_signal_from_files() -> dict:
-    """Прямое чтение signal.json без backend — для GitHub Actions."""
+    """Прямое чтение signal.json без backend — для GitHub Actions.
+
+    Применяет ту же логику что и /api/signal в backend:
+    - smoothing по 3 последним дням
+    - strong-filter (≥ 0.85) — BUY → HOLD при низкой уверенности
+    """
+    STRONG_THRESHOLD = 0.85
     trading = REPO_ROOT_LOCAL / "daily_reports" / "e3b" / "trading"
     if not trading.exists():
         return {}
     dirs = sorted([d for d in trading.iterdir() if d.is_dir()], reverse=True)
-    # Smoothed по 3 последним
     sigs = []
     for d in dirs[:3]:
         f = d / "signal.json"
@@ -71,11 +76,20 @@ def _read_signal_from_files() -> dict:
     date_str = str(latest.get("date", ""))
     if "T" in date_str:
         date_str = date_str.split("T")[0]
+
+    # Strong-filter: raw BUY с уверенностью < 0.85 → HOLD (синхронно с UI)
+    raw_signal = latest.get("signal", "HOLD")
+    if raw_signal == "BUY" and smoothed < STRONG_THRESHOLD:
+        effective_signal = "HOLD"
+    else:
+        effective_signal = raw_signal
+
     return {
-        "signal":  latest.get("signal", "HOLD"),
-        "date":    date_str,
-        "close":   float(latest.get("close", 0)),
-        "p_up":    smoothed,   # smoothed для consistency с UI
+        "signal":     effective_signal,
+        "raw_signal": raw_signal,  # debug: что выдала сама модель
+        "date":       date_str,
+        "close":      float(latest.get("close", 0)),
+        "p_up":       smoothed,
     }
 
 
@@ -617,15 +631,32 @@ def send_portfolio_chart() -> bool:
         caption += f"\n💼 <b>Открытых позиций нет</b>\n<i>Ждём сильный сигнал для входа</i>"
     else:
         # P&L доступен только из backend (/api/positions с расчётами). В fallback его нет
-        pnl_values = [float(p.get("unrealized_pnl_pct", 0)) for p in positions
-                       if "unrealized_pnl_pct" in p]
+        # Используем market_pnl_pct (теоретическая рыночная цена, совпадает с UI)
+        # вместо unrealized_pnl_pct (sandbox со spread'ом Tinkoff'а).
+        # Sandbox P&L отображаем дополнительно в скобках для контекста.
+        pnl_values = []
+        sandbox_values = []
+        for p in positions:
+            market_pnl = p.get("market_pnl_pct")
+            sandbox_pnl = p.get("unrealized_pnl_pct")
+            if market_pnl is not None:
+                pnl_values.append(float(market_pnl))
+            elif sandbox_pnl is not None:
+                pnl_values.append(float(sandbox_pnl))
+            if sandbox_pnl is not None:
+                sandbox_values.append(float(sandbox_pnl))
         if pnl_values:
             avg_pnl = sum(pnl_values) / len(pnl_values) * 100
+            avg_sandbox = sum(sandbox_values) / len(sandbox_values) * 100 if sandbox_values else avg_pnl
             n_sell_advice = sum(1 for p in positions if p.get("advice") == "SELL")
+            # market P&L основной (теоретическая биржа), sandbox в скобках
+            sandbox_note = ""
+            if abs(avg_sandbox - avg_pnl) > 0.1:
+                sandbox_note = f"  <i>(sandbox: {avg_sandbox:+.2f}%)</i>"
             caption += (
                 f"\n💼 <b>Портфолио: {n_open}</b> "
                 f"{'позиция' if n_open == 1 else 'позиций'}\n"
-                f"📈 Средний P&L: <b>{avg_pnl:+.2f}%</b>\n"
+                f"📈 Средний P&L: <b>{avg_pnl:+.2f}%</b>{sandbox_note}\n"
             )
             if n_sell_advice:
                 caption += f"⚠ <b>{n_sell_advice}</b> с советом ПРОДАТЬ\n"

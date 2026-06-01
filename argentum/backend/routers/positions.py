@@ -182,7 +182,7 @@ def _current_silver_price_rub(figi: str = "FSLVRUB00000") -> float:
             usd_per_oz = float(silver_df["close"].iloc[-1])
             # USDRUB из macro кеша или yfinance
             usdrub = 0.0
-            usdrub_file = REPO_ROOT / "data" / "multi_asset" / "macro" / "USDRUB_daily.parquet"
+            usdrub_file = REPO_ROOT / "data" / "multi_asset" / "macro" / "USDRUB.parquet"
             if usdrub_file.exists():
                 try:
                     df = pd.read_parquet(usdrub_file)
@@ -367,7 +367,7 @@ def _theoretical_rub_price(at_date: Optional[date] = None) -> float:
         return 0.0
 
     usdrub = 0.0
-    usdrub_file = REPO_ROOT / "data" / "multi_asset" / "macro" / "USDRUB_daily.parquet"
+    usdrub_file = REPO_ROOT / "data" / "multi_asset" / "macro" / "USDRUB.parquet"
     if usdrub_file.exists():
         try:
             df = pd.read_parquet(usdrub_file)

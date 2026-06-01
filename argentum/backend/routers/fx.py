@@ -14,7 +14,7 @@ from cache import ttl_cache
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 SILVER_PARQUET = REPO_ROOT / "data" / "multi_asset" / "metals" / "silver_daily.parquet"
-USDRUB_PARQUET = REPO_ROOT / "data" / "multi_asset" / "macro" / "USDRUB_daily.parquet"
+USDRUB_PARQUET = REPO_ROOT / "data" / "multi_asset" / "macro" / "USDRUB.parquet"
 
 
 class FxRates(BaseModel):
