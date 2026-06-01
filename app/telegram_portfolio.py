@@ -79,12 +79,100 @@ def _read_signal_from_files() -> dict:
     }
 
 
+def _tinkoff_money(m: Optional[dict]) -> float:
+    """Tinkoff Quotation/MoneyValue → float."""
+    if not m:
+        return 0.0
+    units = int(m.get("units", 0) or 0)
+    nano = int(m.get("nano", 0) or 0)
+    return units + nano / 1e9
+
+
+def _tinkoff_call(service: str, method: str, body: dict, timeout: int = 15) -> dict:
+    """POST к Tinkoff Invest REST API v2. Бросает RuntimeError при ошибке."""
+    token = os.getenv("TINKOFF_TOKEN", "").strip()
+    if not token:
+        raise RuntimeError("TINKOFF_TOKEN не задан")
+    url = f"https://invest-public-api.tinkoff.ru/rest/{service}/{method}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type":  "application/json",
+        "Accept":        "application/json",
+    }
+    r = requests.post(url, data=json.dumps(body), headers=headers, timeout=timeout)
+    data = r.json() if r.text else {}
+    if r.status_code >= 400:
+        raise RuntimeError(f"Tinkoff API {r.status_code}: {data}")
+    return data
+
+
+def _read_positions_from_tinkoff() -> list[dict]:
+    """Реальные позиции из Tinkoff sandbox портфолио.
+
+    Возвращает список dict в формате /api/positions:
+    [{"id", "ticker", "figi", "entry_price", "lots", "current_price",
+      "unrealized_pnl_pct", "advice", ...}]
+
+    При ошибке (нет токена, нет сети) возвращает [].
+    """
+    SANDBOX = "tinkoff.public.invest.api.contract.v1.SandboxService"
+    try:
+        # 1. Берём первый sandbox-аккаунт
+        accs = _tinkoff_call(SANDBOX, "GetSandboxAccounts", {}).get("accounts", [])
+        if not accs:
+            return []
+        acc_id = accs[0]["id"]
+
+        # 2. Запрашиваем портфолио
+        portfolio = _tinkoff_call(SANDBOX, "GetSandboxPortfolio", {"accountId": acc_id})
+
+        # 3. Маппим позиции (исключая валюту)
+        positions = []
+        for i, p in enumerate(portfolio.get("positions", [])):
+            if p.get("instrumentType") == "currency":
+                continue
+            qty = _tinkoff_money(p.get("quantity"))
+            if qty <= 0:
+                continue
+            avg_price = _tinkoff_money(p.get("averagePositionPrice"))
+            current_price = _tinkoff_money(p.get("currentPrice"))
+            pnl_pct = ((current_price - avg_price) / avg_price) if avg_price > 0 else 0.0
+
+            figi = p.get("figi", "")
+            ticker = "SLVRUBF" if figi == "FSLVRUB00000" else figi
+
+            positions.append({
+                "id":               f"tinkoff_{i}",
+                "ticker":           ticker,
+                "figi":             figi,
+                "entry_price":      avg_price,
+                "lots":             int(qty),
+                "lot_size_g":       100 if ticker == "SLVRUBF" else 1,
+                "current_price":    current_price,
+                "unrealized_pnl_pct": pnl_pct,
+                "advice":           "HOLD",
+                "advice_reason":    "из Tinkoff sandbox",
+                "source":           "tinkoff_sandbox",
+            })
+        return positions
+    except Exception as e:
+        print(f"[telegram] Tinkoff fallback failed: {e}")
+        return []
+
+
 def _read_positions_from_files() -> dict:
-    """Прямое чтение positions из SQLite или JSON — для GitHub Actions."""
+    """Прямое чтение positions без backend — для GitHub Actions.
+
+    Каскад:
+    1. SQLite (argentum.db) — позиции пользователя локально
+    2. positions.json — legacy JSON
+    3. Tinkoff sandbox API — реальные позиции на бирже (для cron в облаке)
+    """
     import sqlite3
     db = REPO_ROOT_LOCAL / "argentum" / "backend" / "data" / "argentum.db"
     js = REPO_ROOT_LOCAL / "argentum" / "backend" / "data" / "positions.json"
     positions = []
+    source = "no_data"
     if db.exists():
         try:
             conn = sqlite3.connect(str(db))
@@ -92,21 +180,42 @@ def _read_positions_from_files() -> dict:
             for r in conn.execute("SELECT * FROM positions"):
                 positions.append(dict(r))
             conn.close()
+            if positions:
+                source = "sqlite"
         except Exception:
             pass
-    elif js.exists():
+
+    if not positions and js.exists():
         try:
-            positions = json.loads(js.read_text(encoding="utf-8"))
+            data = json.loads(js.read_text(encoding="utf-8"))
+            if isinstance(data, list) and data:
+                positions = data
+                source = "json"
         except Exception:
             pass
-    # Master signal — без backend нечего сказать, ставим WAIT
+
+    # Tinkoff fallback — если локальные DB/JSON пусты, но есть TINKOFF_TOKEN
+    if not positions and os.getenv("TINKOFF_TOKEN", "").strip():
+        tinkoff_positions = _read_positions_from_tinkoff()
+        if tinkoff_positions:
+            positions = tinkoff_positions
+            source = "tinkoff_sandbox"
+
+    reason_map = {
+        "sqlite":          "из локальной БД (backend не подключён)",
+        "json":            "из positions.json (backend не подключён)",
+        "tinkoff_sandbox": "из Tinkoff sandbox (backend не подключён)",
+        "no_data":         "computed locally (no backend)",
+    }
+
     return {
         "positions":     positions,
         "master_signal": "WAIT",
         "master_p_up":   0.0,
-        "master_reason": "computed locally (no backend)",
+        "master_reason": reason_map[source],
         "n_open":        len(positions),
         "can_buy":       False,
+        "_source":       source,
     }
 
 
@@ -339,8 +448,18 @@ def send_portfolio_chart() -> bool:
     n_open = len(positions)
 
     # === MASTER ASSISTANT verdict ===
-    master_signal = pos.get("master_signal", "WAIT")
-    master_p_up = float(pos.get("master_p_up", 0))
+    # master_p_up: pos endpoint первичный, fallback на sig.p_up (если pos в fallback-режиме = 0)
+    master_p_up = float(pos.get("master_p_up", 0)) or float(sig.get("p_up", 0))
+
+    # master_signal: pos endpoint первичный, fallback на маппинг из sig
+    raw_master = pos.get("master_signal", "")
+    if not raw_master or pos.get("master_reason", "").startswith("computed locally"):
+        # Fallback из sig: BUY если passed strong filter (>=0.85), иначе WAIT
+        sig_value = sig.get("signal", "HOLD")
+        master_signal = "BUY" if (sig_value == "BUY" and master_p_up >= 0.85) else "WAIT"
+    else:
+        master_signal = raw_master
+
     master_emoji = {"BUY": "🟢", "WAIT": "🟡", "AVOID": "🔴"}.get(master_signal, "⚪")
     master_label = {
         "BUY":   "ОТКРЫТЬ новую позицию",
@@ -360,17 +479,28 @@ def send_portfolio_chart() -> bool:
     if n_open == 0:
         caption += f"\n💼 <b>Открытых позиций нет</b>\n<i>Ждём сильный сигнал для входа</i>"
     else:
-        avg_pnl = sum(float(p["unrealized_pnl_pct"]) for p in positions) / n_open * 100
-        n_sell_advice = sum(1 for p in positions if p.get("advice") == "SELL")
-        caption += (
-            f"\n💼 <b>Портфолио: {n_open}</b> "
-            f"{'позиция' if n_open == 1 else 'позиций'}\n"
-            f"📈 Средний P&L: <b>{avg_pnl:+.2f}%</b>\n"
-        )
-        if n_sell_advice:
-            caption += f"⚠ <b>{n_sell_advice}</b> с советом ПРОДАТЬ\n"
+        # P&L доступен только из backend (/api/positions с расчётами). В fallback его нет
+        pnl_values = [float(p.get("unrealized_pnl_pct", 0)) for p in positions
+                       if "unrealized_pnl_pct" in p]
+        if pnl_values:
+            avg_pnl = sum(pnl_values) / len(pnl_values) * 100
+            n_sell_advice = sum(1 for p in positions if p.get("advice") == "SELL")
+            caption += (
+                f"\n💼 <b>Портфолио: {n_open}</b> "
+                f"{'позиция' if n_open == 1 else 'позиций'}\n"
+                f"📈 Средний P&L: <b>{avg_pnl:+.2f}%</b>\n"
+            )
+            if n_sell_advice:
+                caption += f"⚠ <b>{n_sell_advice}</b> с советом ПРОДАТЬ\n"
+            else:
+                caption += "✓ Все позиции рекомендуется ДЕРЖАТЬ\n"
         else:
-            caption += "✓ Все позиции рекомендуется ДЕРЖАТЬ\n"
+            # Fallback-режим: позиции есть в DB, но P&L не посчитан (нет backend)
+            caption += (
+                f"\n💼 <b>Портфолио: {n_open}</b> "
+                f"{'позиция' if n_open == 1 else 'позиций'}\n"
+                f"<i>(P&L доступен в Argentum UI — backend не подключён)</i>\n"
+            )
 
     url = f"https://api.telegram.org/bot{token}/sendPhoto"
     try:
