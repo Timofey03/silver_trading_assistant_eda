@@ -420,11 +420,29 @@ def generate_portfolio_png() -> bytes:
     ax_top.text(0.04, 0.55, sig_label, ha="left", va="center",
                 fontsize=36, fontweight="bold", color=sig_color,
                 family="monospace", transform=ax_top.transAxes)
-    ax_top.text(0.04, 0.20,
-                f"уверенность {int(p_up*100)}% · ${sig.get('close',0):.2f}/oz · "
-                f"{sig.get('date','')}",
+    # Цена лота в ₽ (как на сайте) + USD/oz справа для контекста
+    # Берём из первой позиции (если есть) ИЛИ считаем по theoretical formula
+    rub_per_lot = 0.0
+    if positions:
+        rub_per_lot = float(positions[0].get("market_current_price", 0)) or float(positions[0].get("current_price", 0))
+    if rub_per_lot <= 0:
+        # Theoretical fallback по silver close × USDRUB
+        try:
+            usdrub_path = REPO_ROOT_LOCAL / "data" / "multi_asset" / "macro" / "USDRUB.parquet"
+            if usdrub_path.exists():
+                udf = pd.read_parquet(usdrub_path)
+                ur = float(udf.iloc[-1, 0])
+                rub_per_lot = float(sig.get("close", 0)) * ur * 100 / 31.1035
+        except Exception:
+            pass
+    rub_str = f"{rub_per_lot:,.0f}".replace(",", " ") if rub_per_lot > 0 else "—"
+    subheader = (
+        f"уверенность {int(p_up*100)}% · ₽{rub_str}/лот"
+        f" · ≈ ${sig.get('close',0):.2f}/унция · {sig.get('date','')}"
+    )
+    ax_top.text(0.04, 0.20, subheader,
                 ha="left", va="center", fontsize=10,
-                color=TEXT_MUTED, family="monospace",
+                color=TEXT_MUTED, fontname="DejaVu Sans",
                 transform=ax_top.transAxes)
     # Open positions count badge
     ax_top.text(0.96, 0.5,
@@ -483,7 +501,7 @@ def generate_portfolio_png() -> bytes:
     ax.xaxis.set_major_locator(mdates.AutoDateLocator())
     ax.grid(True, color=BORDER, linestyle="-", linewidth=0.5, alpha=0.5)
     ax.set_axisbelow(True)
-    ax.text(0.0, 1.02, "Silver USD · последние 30 дней · ▲ = твои входы",
+    ax.text(0.0, 1.02, "Серебро · мировая цена за 30 дней · ▲ = твои входы",
             ha="left", va="bottom", fontsize=8, color=TEXT_FAINT,
             family="monospace", transform=ax.transAxes)
 
@@ -620,11 +638,35 @@ def send_portfolio_chart() -> bool:
     }.get(master_signal, master_signal)
     master_reason = pos.get("master_reason", "")
 
+    # Цена серебра + изменение по сравнению с предыдущим торговым днём
+    # (как на сайте «по сравнению с ценой N мая»)
+    price_line = ""
+    try:
+        silver_path = REPO_ROOT_LOCAL / "data" / "multi_asset" / "macro" / "USDRUB.parquet"
+        silver_df = pd.read_parquet(SILVER_PARQUET)
+        last_close = float(silver_df["close"].iloc[-1])
+        if len(silver_df) > 1:
+            prev_close = float(silver_df["close"].iloc[-2])
+            prev_date = silver_df.index[-2]
+            change_pct = (last_close - prev_close) / prev_close * 100
+            arrow = "▲" if change_pct > 0 else ("▼" if change_pct < 0 else "—")
+            # Российский локальный формат: «29 мая»
+            months_ru = ["янв", "фев", "мар", "апр", "мая", "июн",
+                          "июл", "авг", "сен", "окт", "ноя", "дек"]
+            prev_date_str = f"{prev_date.day} {months_ru[prev_date.month - 1]}"
+            price_line = (
+                f"💰 Серебро: <b>${last_close:.2f}/унция</b> "
+                f"{arrow} {change_pct:+.2f}% <i>по сравнению с ценой {prev_date_str}</i>\n"
+            )
+    except Exception:
+        pass
+
     caption = (
         f"🤖 <b>Главный помощник:</b> {master_emoji} <b>{master_label}</b>\n"
         f"📊 Уверенность: <b>{int(master_p_up*100)}%</b> "
         f"(strong filter ≥ 85%)\n"
         f"<i>{master_reason}</i>\n"
+        f"{price_line}"
     )
 
     # === Per-position section ===
@@ -648,13 +690,13 @@ def send_portfolio_chart() -> bool:
                 sandbox_values.append(float(sandbox_pnl))
         if pnl_values:
             avg_pnl = sum(pnl_values) / len(pnl_values) * 100
-            avg_sandbox = sum(sandbox_values) / len(sandbox_values) * 100 if sandbox_values else avg_pnl
             n_sell_advice = sum(1 for p in positions if p.get("advice") == "SELL")
-            # Market P&L (без sandbox-spread, как реальная биржа MOEX) — единственная метрика
+            # Если 1 позиция — просто «P&L», иначе «Средний P&L»
+            pnl_label = "P&L" if n_open == 1 else "Средний P&L"
             caption += (
                 f"\n💼 <b>Портфолио: {n_open}</b> "
                 f"{'позиция' if n_open == 1 else 'позиций'}\n"
-                f"📈 Средний P&L: <b>{avg_pnl:+.2f}%</b>\n"
+                f"📈 {pnl_label}: <b>{avg_pnl:+.2f}%</b>\n"
             )
             if n_sell_advice:
                 caption += f"⚠ <b>{n_sell_advice}</b> с советом ПРОДАТЬ\n"
