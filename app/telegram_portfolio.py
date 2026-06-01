@@ -437,8 +437,7 @@ def generate_portfolio_png() -> bytes:
             pass
     rub_str = f"{rub_per_lot:,.0f}".replace(",", " ") if rub_per_lot > 0 else "—"
     subheader = (
-        f"уверенность {int(p_up*100)}% · ₽{rub_str}/лот"
-        f" · ≈ ${sig.get('close',0):.2f}/унция · {sig.get('date','')}"
+        f"уверенность {int(p_up*100)}% · ₽{rub_str}/лот · {sig.get('date','')}"
     )
     ax_top.text(0.04, 0.20, subheader,
                 ha="left", va="center", fontsize=10,
@@ -483,14 +482,19 @@ def generate_portfolio_png() -> bytes:
                         fontsize=8, color=EMERALD, ha="center",
                         fontweight="bold", family="monospace")
 
-        # Current price line
+        # Current price line — горизонталь по USD-уровню,
+        # но подпись справа показываем в ₽/лот (как на сайте: всё в рублях)
         close = float(sig.get("close", 0))
         if close > 0:
             ax.axhline(y=close, color=sig_color, linestyle=":",
                        linewidth=1, alpha=0.5)
-            ax.text(prices.index[-1], close, f"  ${close:.2f}",
+            rub_label = (
+                f"  ₽{rub_per_lot:,.0f}".replace(",", " ")
+                if rub_per_lot > 0 else f"  ${close:.2f}"
+            )
+            ax.text(prices.index[-1], close, rub_label,
                     color=sig_color, fontsize=9, va="center",
-                    family="monospace", fontweight="bold")
+                    fontname="DejaVu Sans", fontweight="bold")
 
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
@@ -638,28 +642,42 @@ def send_portfolio_chart() -> bool:
     }.get(master_signal, master_signal)
     master_reason = pos.get("master_reason", "")
 
-    # Цена серебра + изменение по сравнению с предыдущим торговым днём
-    # (как на сайте «по сравнению с ценой N мая»)
+    # Цена серебра + изменение по сравнению с предыдущим торговым днём.
+    # Расчёт целиком в рублях: рублёвая цена лота = USD × USDRUB × 100/31.1035.
+    # Это даёт честное изменение для российского инвестора (учитывает и движение
+    # металла, и движение курса доллара).
     price_line = ""
     try:
-        silver_path = REPO_ROOT_LOCAL / "data" / "multi_asset" / "macro" / "USDRUB.parquet"
         silver_df = pd.read_parquet(SILVER_PARQUET)
-        last_close = float(silver_df["close"].iloc[-1])
-        if len(silver_df) > 1:
-            prev_close = float(silver_df["close"].iloc[-2])
+        usdrub_path = REPO_ROOT_LOCAL / "data" / "multi_asset" / "macro" / "USDRUB.parquet"
+        usdrub_df = pd.read_parquet(usdrub_path)
+        if len(silver_df) > 1 and len(usdrub_df) > 0:
+            last_s = float(silver_df["close"].iloc[-1])
+            prev_s = float(silver_df["close"].iloc[-2])
+            # USDRUB на каждую дату (asof — ближайшее значение не позже даты)
+            last_date = silver_df.index[-1]
             prev_date = silver_df.index[-2]
-            change_pct = (last_close - prev_close) / prev_close * 100
+            last_u_idx = usdrub_df.index.asof(last_date)
+            prev_u_idx = usdrub_df.index.asof(prev_date)
+            last_u = float(usdrub_df.loc[last_u_idx, usdrub_df.columns[0]]) if last_u_idx else float(usdrub_df.iloc[-1, 0])
+            prev_u = float(usdrub_df.loc[prev_u_idx, usdrub_df.columns[0]]) if prev_u_idx else last_u
+            # Рублёвая цена лота на каждый день
+            lot_factor = 100 / 31.1035
+            last_rub = last_s * last_u * lot_factor
+            prev_rub = prev_s * prev_u * lot_factor
+            change_pct = (last_rub - prev_rub) / prev_rub * 100 if prev_rub > 0 else 0
             arrow = "▲" if change_pct > 0 else ("▼" if change_pct < 0 else "—")
-            # Российский локальный формат: «29 мая»
+            # Российский формат: «29 мая»
             months_ru = ["янв", "фев", "мар", "апр", "мая", "июн",
                           "июл", "авг", "сен", "окт", "ноя", "дек"]
             prev_date_str = f"{prev_date.day} {months_ru[prev_date.month - 1]}"
+            last_rub_str = f"{last_rub:,.0f}".replace(",", " ")
             price_line = (
-                f"💰 Серебро: <b>${last_close:.2f}/унция</b> "
+                f"💰 Серебро: <b>₽{last_rub_str}/лот</b> "
                 f"{arrow} {change_pct:+.2f}% <i>по сравнению с ценой {prev_date_str}</i>\n"
             )
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[telegram] price_line build failed: {e}")
 
     caption = (
         f"🤖 <b>Главный помощник:</b> {master_emoji} <b>{master_label}</b>\n"
