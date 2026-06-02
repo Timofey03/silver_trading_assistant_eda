@@ -21,14 +21,13 @@ pip install lightgbm catboost yfinance pyarrow seaborn
 #    TG_CHAT_ID=...
 
 # 3. Запустить веб-интерфейс Argentum (см. ниже)
-#    или Streamlit-приложения (legacy, для разработки)
 ```
 
 ---
 
 ## 🖥 Веб-интерфейс Argentum (production UI)
 
-**FastAPI backend + Next.js 16 frontend** поверх E3b модели. Заменяет старый Streamlit-интерфейс для конечного пользователя.
+**FastAPI backend + Next.js 16 frontend** поверх E3b модели.
 
 ### Запуск одной командой (Windows)
 
@@ -84,36 +83,6 @@ npm run dev
 | GET | `/api/health` | Liveness check |
 
 Persistent cache + TTL для тяжёлых эндпоинтов (30–300 с). SQLite-хранение позиций. OOD-детектор интегрирован в `/api/signal` (warning при extreme features).
-
----
-
-## 📱 Streamlit-приложения (legacy / для разработки)
-
-Два независимых веб-интерфейса остались для разработки и для демонстрации:
-
-### `dashboard_app.py` — профессиональная панель (порт 8501)
-
-```bash
-streamlit run dashboard_app.py
-```
-
-| Экран | Что показывает |
-|---|---|
-| 🏠 Главная | Карточка сигнала E3b, KPI, equity curve |
-| 💰 Портфель | Live баланс Tinkoff, donut, открытые позиции |
-| 📊 Сигналы | Win rate, P&L каждой сделки |
-| 📈 Графики | Candlestick + signals overlay + drawdown |
-| 🤖 Модель | DSR / PSR / Sharpe, bootstrap CI, drift detection |
-| ⚙ Настройки | Tinkoff, Telegram alerts |
-| 🧮 Калькулятор | Расчёт лотов от капитала |
-
-### `simple_app.py` — облегчённая версия (порт 8502)
-
-```bash
-streamlit run simple_app.py --server.port 8502
-```
-
-Минимум технических терминов, акцент на действиях. 6 страниц: Сейчас / Мои сделки / Калькулятор / Как работал / Эволюция модели / Настройки.
 
 ---
 
@@ -289,113 +258,68 @@ python scripts/audit_assistant.py
 
 ---
 
-## 🗂 Структура проекта
+## 🗂 Структура проекта (минимум для запуска)
 
 ```
 silver_trading_assistant_eda/
 ├── README.md
 ├── requirements.txt
-├── .env.example
+├── .env.example                            ← TINKOFF_TOKEN / TG_BOT_TOKEN / TG_CHAT_ID
 │
-├── 🏆 ФИНАЛЬНАЯ МОДЕЛЬ E3b ───────────────────────────────────────────────
+├── app/                                     ← Pipeline + утилиты модели
+│   ├── multi_asset/
+│   │   ├── metal_loader.py                 ← yfinance × 5 металлов + data quality
+│   │   ├── macro_loader.py                 ← FRED × 9 + USDRUB
+│   │   ├── features.py                     ← 105 признаков
+│   │   ├── labels.py                       ← Triple-barrier + adaptive barriers
+│   │   ├── walkforward.py                  ← WF engine + purging + embargo
+│   │   ├── simulator.py                    ← Trade execution
+│   │   └── metrics.py                      ← Sharpe / DSR / PSR / Sortino / Calmar
+│   ├── telegram_portfolio.py               ← Telegram-нотификация + Tinkoff fallback + ₽
+│   ├── notifier.py                         ← Telegram отправитель
+│   └── utils.py                            ← Cached loaders
 │
-├── app/multi_asset/                       ← Multi-asset pipeline
-│   ├── metal_loader.py                    ← yfinance × 5 металлов + data quality
-│   ├── macro_loader.py                    ← FRED × 9 + USDRUB
-│   ├── features.py                        ← 105 признаков
-│   ├── labels.py                          ← Triple-barrier + adaptive barriers
-│   ├── walkforward.py                     ← WF engine + purging + embargo
-│   ├── simulator.py                       ← Trade execution
-│   └── metrics.py                         ← Sharpe / DSR / PSR / Sortino / Calmar
-│
-├── experiments/                            ← Дипломные эксперименты E1-E4
-│   ├── e1_baseline.py                     ← E1: Sharpe 0,459
-│   ├── e2b_feature_selected.py            ← E2b: Sharpe 0,580
-│   ├── e3_macro_adaptive.py               ← E3a/b/c
-│   ├── e4_stacking.py                     ← E4: Sharpe 0,194 (overfit)
-│   ├── compare_v25.py                     ← E3b vs V25
-│   └── visualize.py                       ← Графики для диплома
-│
-├── data/multi_asset/
-│   ├── metals/                            ← 5 parquet
-│   ├── macro/                             ← 9 parquet + USDRUB
-│   ├── features/silver_features.parquet   ← 105 cols × 3110 чистых строк
+├── data/multi_asset/                        ← Кэш данных (нужен для инференса)
+│   ├── metals/                             ← 5 parquet
+│   ├── macro/                              ← 9 parquet + USDRUB
+│   ├── features/silver_features.parquet
 │   └── labels/silver_labels.parquet
 │
-├── baseline_outputs_multiasset/           ← Результаты экспериментов
-│   ├── e1_baseline/                       ← trades.csv + metrics.json
-│   ├── e2_cross_asset/                    ← E2 naive (negative)
-│   ├── e2b_feature_selected/              ← E2b + FS
-│   ├── e3a_macro/                         ← E3a + macro (negative)
-│   ├── e3b_adaptive/                      ← 🏆 90 сделок, +343,5 %
-│   ├── e3c_metalabel/                     ← E3c
-│   ├── e4_stacking/                       ← E4 (negative)
-│   └── competitors_metrics.json           ← AQR / SLV / Medallion
+├── baseline_outputs_multiasset/
+│   └── e3b_adaptive/                       ← 🏆 Артефакты финальной модели
+│       ├── trades.csv                      ← 90 сделок walk-forward
+│       ├── predictions.parquet             ← p_up по дням
+│       ├── feature_importance.csv          ← Топ-признаки
+│       └── metrics.json                    ← Sharpe / DD / PF / Win
 │
-├── 🖥 ARGENTUM WEB UI ─────────────────────────────────────────────────────
-│
-├── argentum/
-│   ├── README.md
-│   ├── start_all.bat                      ← Запуск backend + frontend
+├── argentum/                                ← 🖥 Web UI
+│   ├── start_all.bat                       ← Запуск backend + frontend одной кнопкой
 │   ├── start_backend.bat / start_frontend.bat
-│   ├── install_desktop_shortcut.bat
-│   ├── backend/                           ← FastAPI :8000
+│   ├── backend/                            ← FastAPI :8000
 │   │   ├── main.py
-│   │   └── routers/                       ← 14 роутеров (см. таблицу выше)
-│   └── frontend/                          ← Next.js 16 :3000
+│   │   └── routers/                        ← 14 endpoints (см. таблицу выше)
+│   └── frontend/                           ← Next.js 16 :3000
 │       └── app/
-│           ├── page.tsx                   ← / Сейчас
-│           ├── positions/page.tsx         ← /positions
-│           ├── history/page.tsx           ← /history
-│           ├── methodology/page.tsx       ← /methodology
-│           └── settings/page.tsx          ← /settings
-│
-├── 📱 STREAMLIT (legacy) ─────────────────────────────────────────────────
-│
-├── dashboard_app.py                       ← Professional dashboard :8501
-├── pages/                                  ← 7 страниц
-├── simple_app.py                          ← Облегчённая :8502
-├── simple_pages/                          ← 6 страниц
-│
-├── 🤖 PRODUCTION ──────────────────────────────────────────────────────────
+│           ├── page.tsx                    ← / Сейчас
+│           ├── positions/page.tsx          ← /positions
+│           ├── history/page.tsx            ← /history
+│           ├── methodology/page.tsx        ← /methodology
+│           └── settings/page.tsx           ← /settings
 │
 ├── scripts/
-│   ├── daily_e3b.py                       ← 🏆 Daily production run
-│   ├── backfill_walkforward_ffill5.py     ← Weekly backfill
-│   ├── apply_optimal_exits.py             ← Apply optimal config
-│   ├── audit_assistant.py                 ← Аудит UI ↔ Telegram
-│   ├── test_telegram_e3b.py               ← Telegram test
-│   └── thesis/                            ← Скрипты для ВКР (генерация PNG, .docx)
+│   ├── daily_e3b.py                        ← 🏆 Daily production run (cron-точка входа)
+│   ├── backfill_walkforward_ffill5.py      ← Weekly walk-forward backfill
+│   ├── apply_optimal_exits.py              ← Применить optimal config
+│   └── test_telegram_e3b.py                ← Локальный тест Telegram
 │
 ├── .github/workflows/
-│   ├── daily_e3b.yml                      ← 🏆 3× в день
-│   ├── weekly_backfill.yml                ← Воскресенье
-│   └── test.yml                           ← pytest CI
+│   ├── daily_e3b.yml                       ← 🏆 3× в день (cron)
+│   ├── weekly_backfill.yml                 ← Воскресенье (cron)
+│   └── test.yml                            ← pytest CI
 │
-├── app/
-│   ├── telegram_portfolio.py              ← Tinkoff fallback + ₽ rendering
-│   ├── notifier.py                        ← Telegram отправитель
-│   ├── utils.py                           ← Cached loaders
-│   ├── charts.py                          ← Plotly helpers
-│   └── simple_storage.py                  ← Local storage
-│
-├── tests/                                  ← pytest (17 тестов)
-│   ├── test_no_lookahead.py
-│   ├── test_simulator.py
-│   ├── test_fx.py
-│   └── ...
-│
-├── daily_reports/e3b/                     ← E3b daily training + trading reports
-│
-├── 📚 ДОКУМЕНТАЦИЯ ────────────────────────────────────────────────────────
-│
-└── docs/
-    ├── ВКР_Silver_Trading_Assistant_v2.docx  ← 🎓 Дипломная работа
-    ├── Презентация_защита_ВКР.pptx           ← Презентация на 5 мин
-    ├── Речь_защита_5мин.docx                  ← Текст защиты
-    ├── ОТВЕТЫ_НА_ВОПРОСЫ.md                   ← Q&A для защиты
-    ├── НАУЧНАЯ_ЧЕСТНОСТЬ.md                   ← Отдельный файл (не в ВКР)
-    └── images/                                ← PNG для thesis + скриншоты Argentum
+└── daily_reports/e3b/                       ← Артефакты daily-runs
+    ├── trading/YYYY-MM-DD/signal.json      ← Сегодняшний сигнал
+    └── training/YYYY-MM-DD/metrics.json    ← Метрики после переобучения
 ```
 
 ---
@@ -458,49 +382,6 @@ silver_trading_assistant_eda/
 **Где E3b выигрывает**: Total return +343,5 % против +106 % у Buy-and-Hold (+237 п.п. альфа); Sharpe **+0,68** к B&H; защита просадки −25,7 % vs −47,1 % у пассивной стратегии; работает в боковых годах (2018, 2023) и в кризис (2022: −22,9 % vs −47 % у B&H в моменте).
 
 **Где E3b проигрывает**: CAGR ниже Renaissance Medallion (это уже золотой стандарт квантовых фондов с inside-доступом к биржам). Calmar Ratio 0,56 — ниже промышленных трендфолловеров. Отрицательная асимметрия (skewness обратная) — следствие архитектуры stop-loss.
-
-Полное сравнение с цифрами и обсуждением методологии — [`docs/НАУЧНАЯ_ЧЕСТНОСТЬ.md`](docs/НАУЧНАЯ_ЧЕСТНОСТЬ.md).
-
----
-
-## 🎯 Roadmap
-
-- [x] Phase 1: Multi-asset data pipeline (5 металлов + 9 macro, 16 лет)
-- [x] Phase 2: Walk-forward engine + Trade simulator + Metrics
-- [x] Phase 3: E1 silver-only baseline (Sharpe 0,459)
-- [x] Phase 4: E2 / E2b cross-asset + feature selection
-- [x] Phase 5: E3a / b / c — macro + adaptive barriers + meta-labeling
-- [x] Phase 6: E4 stacking ensemble (negative result, документировано)
-- [x] Phase 7: Production integration — Telegram + GitHub Actions
-- [x] Phase 8: Argentum UI (FastAPI + Next.js 16)
-- [x] Phase 9: Multi-position dashboard + per-position SELL advisor
-- [x] Phase 10: Smoothed strong-signal filter + ансамбль регим-зависимых моделей (Sharpe вырос с 0,53 до 0,99)
-- [x] Phase 11: Tinkoff sandbox fallback для cron-Telegram
-- [x] Phase 12: Полная локализация в ₽ (UI + Telegram + графики)
-- [x] Phase 13: ВКР 50–60 страниц + защитные материалы
-- [ ] **Live forward validation** — 6 месяцев daily live mode на реальной торговой статистике
-- [ ] **Volatility targeting position sizing** для улучшения Calmar Ratio
-- [ ] **Drawdown circuit-breaker** (заморозить новые сделки при DD > 8 %)
-- [ ] **Online learning** через River library для OOD-адаптации в bull market
-- [ ] **NLP sentiment features** через FinBERT на финансовых новостях
-- [ ] **HMM regime detection** (расширение SMA200 + ATR до 3-состояния)
-
----
-
-## 📚 Документация
-
-### Дипломная работа
-
-- [`docs/ВКР_Silver_Trading_Assistant_v2.docx`](docs/ВКР_Silver_Trading_Assistant_v2.docx) — основной документ ВКР (50–60 страниц, 9 таблиц, 12 рисунков Главы 3 + Приложения А–Е)
-- [`docs/Речь_защита_5мин.docx`](docs/Речь_защита_5мин.docx) — текст защиты на 5 минут
-- [`docs/Презентация_защита_ВКР.pptx`](docs/Презентация_защита_ВКР.pptx) — слайды по шаблону ФТК
-- [`docs/ОТВЕТЫ_НА_ВОПРОСЫ.md`](docs/ОТВЕТЫ_НА_ВОПРОСЫ.md) — Q&A: типовые + каверзные вопросы комиссии
-- [`docs/НАУЧНАЯ_ЧЕСТНОСТЬ.md`](docs/НАУЧНАЯ_ЧЕСТНОСТЬ.md) — отдельный документ о допущениях и ограничениях исследования (не входит в основной текст ВКР по требованиям ГОСТ)
-
-### Технические
-
-- [`argentum/README.md`](argentum/README.md) — гайд по запуску backend + frontend
-- [`docs/PAPER_TRADING.md`](docs/PAPER_TRADING.md) — гайд по Tinkoff sandbox bridge (если есть)
 
 ---
 
