@@ -1,0 +1,23 @@
+E3b Daily Trading Signal — 2026-06-08 @ 094049 UTC
+==================================================
+
+  Alert type:     ACTION
+  📢 НОВЫЙ СИГНАЛ: BUY → HOLD
+  Модель сменила сигнал с «BUY» на «HOLD».
+
+  Date:           2026-06-08T00:00:00
+  Silver close:   $67.10
+  Probability:    p_up = 0.4499
+  Current signal: HOLD
+  Previous:       BUY (2026-06-05)
+
+Trade execution params:
+  Entry threshold:  0.48
+  Exit threshold:   0.35
+  Trailing stop:    20%
+  Max hold:         30 days
+  Cooldown:         25 days
+
+Model params:
+  Features used:    30
+  Train samples:    3831
