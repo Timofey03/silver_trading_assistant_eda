@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +11,15 @@ from pydantic import BaseModel
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 E3B_TRADING = REPO_ROOT / "daily_reports" / "e3b" / "trading"
+
+# Hard deadline для OOD-чека внутри /api/signal.
+# build_feature_frame() → load_macro() лезет в FRED CSV. FRED регулярно
+# зависает на 15+ сек и блокирует весь endpoint, что замораживает SSR
+# фронтенда. Ставим жёсткий потолок: если OOD не успел — отдаём сигнал
+# без OOD-полей. Фоновый воркер дотолкает результат, следующий вызов
+# заберёт его из TTL-кеша.
+OOD_DEADLINE_SEC = 3.0
+_OOD_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ood")
 
 
 class SignalResponse(BaseModel):
@@ -144,9 +154,14 @@ def get_signal():
     if raw_signal == "BUY" and p_up_smoothed < STRONG_THRESHOLD:
         effective_signal = "HOLD"
 
-    # OOD check
+    # OOD check с жёстким таймаутом. Первая холодная сборка features может
+    # уйти в FRED и зависнуть на десятки секунд — это превратит /api/signal
+    # в долгий запрос и заморозит фронт. Ждём максимум OOD_DEADLINE_SEC,
+    # потом отдаём дефолт; фоновая задача дотолкает кеш на следующий вызов.
     try:
-        ood = _OOD_CACHE()
+        ood = _OOD_EXECUTOR.submit(_OOD_CACHE).result(timeout=OOD_DEADLINE_SEC)
+    except FuturesTimeout:
+        ood = {"is_ood": False, "ood_score": 0.0, "summary": "OOD check pending (cache warming)"}
     except Exception:
         ood = {"is_ood": False, "ood_score": 0.0, "summary": "OOD check error"}
 

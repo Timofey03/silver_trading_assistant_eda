@@ -434,10 +434,13 @@ def send_telegram(signal_info: dict, metrics: dict) -> None:
     Сначала пробуем PNG-чарт через app.telegram_chart (красиво).
     Если matplotlib/requests упали — fallback на старый sendMessage.
 
-    ВАЖНО: отправляем только при СМЕНЕ сигнала (alert_type == "action").
-    Info-сообщения (та же команда BUY/HOLD/SELL что и вчера) НЕ шлём —
-    это спам в TG. Cron 3 раза в день нужен для мониторинга данных, но
-    уведомления должны быть только при реальной смене состояния.
+    Логика частоты:
+    - При СМЕНЕ сигнала (alert_type == "action") — отправляем всегда.
+    - При повторе того же сигнала (is_repeat=True) — отправляем
+      ТОЛЬКО при TG_HEARTBEAT=1 (например, утренний cron — один раз
+      в день) или при FORCE_TG_SEND=1 (ручной override).
+    Это нужно чтобы пользователь видел, что система жива, и при этом
+    не получал 3 одинаковых уведомления в день.
     """
     token = os.getenv("TG_BOT_TOKEN")
     chat_id = os.getenv("TG_CHAT_ID")
@@ -445,14 +448,16 @@ def send_telegram(signal_info: dict, metrics: dict) -> None:
         print("  (Telegram credentials отсутствуют, skip)")
         return
 
-    # === Дедупликация: пропускаем info-сообщения ===
+    # === Дедупликация vs heartbeat ===
     alert_type = signal_info.get("alert_type", "action")
     is_repeat = signal_info.get("is_repeat", False)
-    # Принудительный режим через env (для тестов): FORCE_TG_SEND=1
-    force = os.getenv("FORCE_TG_SEND", "").strip() == "1"
-    if (alert_type == "info" or is_repeat) and not force:
+    force = os.getenv("FORCE_TG_SEND", "").strip() == "1"          # ручной override
+    heartbeat = os.getenv("TG_HEARTBEAT", "").strip() == "1"        # daily liveness ping
+    if (alert_type == "info" or is_repeat) and not (force or heartbeat):
         print(f"  (Telegram: alert_type={alert_type}, is_repeat={is_repeat} — info skip)")
         return
+    if (alert_type == "info" or is_repeat) and heartbeat:
+        print(f"  (Telegram: heartbeat send — alert_type={alert_type}, is_repeat={is_repeat})")
 
     # === Попытка №1: Portfolio PNG (master signal + positions) ===
     try:
@@ -555,28 +560,18 @@ def main():
     print(f"Training output: {TRAINING_DIR}")
     print(f"Trading output:  {TRADING_DIR}")
 
-    # Step 1
+    # Step 1: refresh данных (быстро, ~2–5 мин)
     if not args.quick:
         refresh_data()
 
-    # Step 2
-    if args.skip_training:
-        print("\n[2/4] Skipping training (--skip-training)")
-        # Загружаем последние известные метрики
-        try:
-            with open(E3B_DIR / "metrics.json", encoding="utf-8") as f:
-                metrics = json.load(f)
-        except FileNotFoundError:
-            metrics = {}
-    else:
-        metrics = retrain_walkforward()
-
-    # Step 3
+    # Step 2: signal на сегодня (быстро, ~30с–2мин). НЕ зависит от walk-forward —
+    # обучает отдельную модель на всех данных. Walk-forward нужен только для
+    # метрик в TG, и их мы берём из кеша предыдущего дня.
     signal_info = generate_today_signal()
 
-    # Step 3.5: дедупликация — определяем action vs info
+    # Step 3: дедупликация — action vs info
     print("\n" + "=" * 70)
-    print("[3.5] CHECK FOR REPEAT SIGNAL")
+    print("[3] CHECK FOR REPEAT SIGNAL")
     print("=" * 70)
     new_signal_value = signal_info.get("signal", "—")
     prev = find_previous_signal()
@@ -588,17 +583,38 @@ def main():
     print(f"  Alert type:      {alert['alert_type'].upper()} ({'repeat' if alert['is_repeat'] else 'change'})")
     print(f"  Headline:        {alert['headline']}")
 
-    # Step 4
-    print("\n" + "=" * 70)
-    print("[4/4] SAVE REPORTS")
-    print("=" * 70)
-    save_training_report(metrics)
-    enriched_signal = save_trading_report(signal_info, alert)
+    # Step 4: cached metrics для TG (свежий retrain — потом).
+    # До 01.06 TG-сообщения уходили после walk-forward+optuna, что давало
+    # задержку 2–4 часа после cron (юзер видел утренний сигнал не в 08:00,
+    # а в 11:30+ MSK). Теперь шлём с метриками вчерашнего walk-forward —
+    # они меняются от запуска к запуску слабо, а юзер получает свежий сигнал
+    # вовремя.
+    try:
+        with open(E3B_DIR / "metrics.json", encoding="utf-8") as f:
+            cached_metrics = json.load(f)
+        print(f"  Loaded cached metrics: Sharpe={cached_metrics.get('sharpe', 0):.3f}")
+    except FileNotFoundError:
+        cached_metrics = {}
+        print("  No cached metrics (first run)")
 
-    # Telegram (с правильным action/info форматом)
+    # Step 5: trading report + TG ASAP — ДО долгого retrain'а
+    print("\n" + "=" * 70)
+    print("[5] SAVE TRADING REPORT + TELEGRAM")
+    print("=" * 70)
+    enriched_signal = save_trading_report(signal_info, alert)
     if not args.no_telegram:
         print("\n  Sending Telegram notification...")
-        send_telegram(enriched_signal, metrics)
+        send_telegram(enriched_signal, cached_metrics)
+
+    # Step 6: walk-forward retrain (медленно, 2–4 ч). Делаем ПОСЛЕ TG, чтобы
+    # уведомление не зависело от тяжёлой стадии. На следующем запуске эти
+    # свежие метрики попадут в TG.
+    if args.skip_training:
+        print("\n[6] Skipping walk-forward (--skip-training)")
+        metrics = cached_metrics
+    else:
+        metrics = retrain_walkforward()
+        save_training_report(metrics)
 
     print("\n" + "=" * 70)
     print("DAILY E3b RUN COMPLETE ✅")
