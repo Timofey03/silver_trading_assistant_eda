@@ -40,15 +40,40 @@ jobs:
           pip install python-dotenv lightgbm catboost yfinance pyarrow seaborn
 
       - name: Run E3b daily pipeline (refresh + walk-forward + signal)
+        id: e3b_run
         env:
           # Telegram notifications (опционально)
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID:   ${{ secrets.TG_CHAT_ID }}
+          # Daily heartbeat — на утреннем cron (08:00 MSK = 05:00 UTC)
+          # шлём TG даже при is_repeat, чтобы юзер видел что система жива.
+          # На дневном/вечернем cron — только при смене сигнала.
+          TG_HEARTBEAT: ${{ github.event.schedule == '0 5 * * 1-5' && '1' || '0' }}
         run: |
           python scripts/daily_e3b.py
-        continue-on-error: true   # отчёты всё равно сохранятся
+        continue-on-error: true   # отчёты всё равно сохранятся; падение ловится ниже
+
+      - name: Notify Telegram on pipeline failure
+        # Срабатывает когда e3b_run действительно упал, даже при continue-on-error.
+        # Без этого падения cron невидимы (workflow зелёный) — как было 02–07.06.
+        if: steps.e3b_run.outcome == 'failure'
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID:   ${{ secrets.TG_CHAT_ID }}
+        run: |
+          if [ -z "$TG_BOT_TOKEN" ] || [ -z "$TG_CHAT_ID" ]; then
+            echo "TG creds missing — skip failure notification"; exit 0
+          fi
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          TEXT=$'❌ *E3b cron crashed*\n'"Run #${{ github.run_number }} on \`${{ github.event.schedule || 'manual' }}\`"$'\n'"$RUN_URL"
+          curl -sS -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TG_CHAT_ID}" \
+            --data-urlencode "text=${TEXT}" \
+            --data-urlencode "parse_mode=Markdown" \
+            --data-urlencode "disable_web_page_preview=true" || true
 
       - name: Commit updated data and reports
+        if: always()              # коммитим даже если пайплайн упал — частичные отчёты могут быть полезны
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
