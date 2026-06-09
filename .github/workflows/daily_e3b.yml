@@ -49,6 +49,9 @@ jobs:
           # шлём TG даже при is_repeat, чтобы юзер видел что система жива.
           # На дневном/вечернем cron — только при смене сигнала.
           TG_HEARTBEAT: ${{ github.event.schedule == '0 5 * * 1-5' && '1' || '0' }}
+          # Manual run (workflow_dispatch) всегда форсит отправку TG —
+          # это нужно для тестов, иначе дедуп заглушит сообщение при is_repeat.
+          FORCE_TG_SEND: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
         run: |
           python scripts/daily_e3b.py
         continue-on-error: true   # отчёты всё равно сохранятся; падение ловится ниже
