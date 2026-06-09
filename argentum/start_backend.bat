@@ -9,6 +9,22 @@ echo   API docs: http://127.0.0.1:8000/docs
 echo ============================================================
 echo.
 
+REM === Auto-pull свежих daily_reports от cron'а ===
+REM Cron на GitHub кладёт новые signal.json каждый рабочий день. Без pull
+REM локальный backend читает устаревшие отчёты — сайт показывает старую дату.
+REM ff-only — никогда не перезаписывает локальные правки силой; если есть
+REM расходящиеся правки, просто пропускает с предупреждением.
+pushd "%~dp0.."
+echo [auto-pull] origin/main...
+git fetch --quiet origin main && git merge --ff-only origin/main 2>nul
+if errorlevel 1 (
+    echo [auto-pull] skipped — local diverged from origin, доделай git pull/merge вручную
+) else (
+    echo [auto-pull] OK
+)
+popd
+echo.
+
 cd /d "%~dp0backend"
 
 REM Activate venv (prefer .venv, fallback to venv)
