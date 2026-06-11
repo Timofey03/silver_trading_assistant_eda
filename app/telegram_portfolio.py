@@ -366,6 +366,70 @@ def _api(path: str) -> dict:
         return {}
 
 
+# Один источник истины для «главного» сигнала в TG-уведомлении.
+# До этого PNG и caption считали сигнал по-разному:
+# - PNG использовал effective_signal из /api/signal (BUY/HOLD/SELL после strong-filter)
+# - caption использовал master_signal из /api/positions (BUY/WAIT/AVOID с учётом
+#   cash/limits, в cron-fallback хардкодится в "WAIT")
+# Из-за этого в одном сообщении могло быть «ПОКУПАТЬ» в шапке и «ОЖИДАТЬ» в подписи.
+def _resolve_master_status(sig: dict, pos: dict) -> dict:
+    """Канонический master-сигнал для отображения в TG.
+
+    Возвращает dict с полями:
+      signal       — "BUY" | "WAIT" | "AVOID"
+      p_up         — smoothed confidence [0..1]
+      label_short  — короткий лейбл для PNG-шапки (ПОКУПАТЬ/ОЖИДАТЬ/НЕ ВХОДИТЬ)
+      label_long   — развёрнутый лейбл для caption (ОТКРЫТЬ.../ОЖИДАТЬ.../НЕ ВХОДИТЬ...)
+      emoji        — 🟢/🟡/🔴
+      color        — hex для PNG
+    """
+    STRONG_THRESHOLD = 0.85
+
+    # p_up: master_p_up из positions endpoint первичный (синхронизирован с UI),
+    # fallback на signal.p_up. В cron-fallback оба = 0.0 / smoothed соответственно.
+    p_up = float(pos.get("master_p_up", 0)) or float(sig.get("p_up", 0))
+
+    # Сигнал: master_signal из positions endpoint первичный (там учтены
+    # cash/limits/cooldown), но в fallback-режиме он хардкоден в "WAIT" —
+    # в этом случае производим из signal endpoint со strong-filter.
+    raw_master = pos.get("master_signal", "")
+    master_reason = str(pos.get("master_reason", ""))
+    fallback_mode = (
+        not raw_master
+        or master_reason.startswith("computed locally")
+        or master_reason.startswith("позиций нет")
+        or master_reason.startswith("из локальной")
+        or master_reason.startswith("из positions.json")
+        or master_reason.startswith("из Tinkoff")
+    )
+    if fallback_mode:
+        # Сами производим master из signal endpoint
+        raw_sig = sig.get("raw_signal") or sig.get("signal", "HOLD")
+        if raw_sig == "BUY" and p_up >= STRONG_THRESHOLD:
+            signal = "BUY"
+        else:
+            signal = "WAIT"
+    else:
+        signal = raw_master
+
+    label_short = {"BUY": "ПОКУПАТЬ", "WAIT": "ОЖИДАТЬ", "AVOID": "НЕ ВХОДИТЬ"}.get(signal, signal)
+    label_long = {
+        "BUY":   "ОТКРЫТЬ новую позицию",
+        "WAIT":  "ОЖИДАТЬ (сейчас не входить)",
+        "AVOID": "НЕ ВХОДИТЬ (рынок против)",
+    }.get(signal, signal)
+    emoji = {"BUY": "🟢", "WAIT": "🟡", "AVOID": "🔴"}.get(signal, "⚪")
+    color = {"BUY": EMERALD, "WAIT": AMBER, "AVOID": ROSE}.get(signal, TEXT_MUTED)
+    return {
+        "signal":      signal,
+        "p_up":        p_up,
+        "label_short": label_short,
+        "label_long":  label_long,
+        "emoji":       emoji,
+        "color":       color,
+    }
+
+
 def generate_portfolio_png() -> bytes:
     """
     PNG из 3 секций:
@@ -378,20 +442,15 @@ def generate_portfolio_png() -> bytes:
     pos = _api_with_fallback("/api/positions")
     positions = pos.get("positions", [])
 
-    # Применяем strong-filter (≥ 0.85) для синхронности с UI:
-    # raw signal=BUY превращается в HOLD, если уверенность ниже 85%.
-    raw_signal = sig.get("signal", "HOLD")
-    smoothed_p_up = float(pos.get("master_p_up", 0)) or float(sig.get("p_up", 0))
-    STRONG_THRESHOLD = 0.85
-    if raw_signal == "BUY" and smoothed_p_up < STRONG_THRESHOLD:
-        sig_value = "HOLD"
-    else:
-        sig_value = raw_signal
-    # p_up берём из POSITIONS endpoint (master_p_up — синхронизирован с UI)
-    # Fallback: signal endpoint (тоже smoothed теперь)
-    p_up = float(pos.get("master_p_up", 0)) or float(sig.get("p_up", 0))
-    sig_color = {"BUY": EMERALD, "SELL": ROSE, "HOLD": AMBER}.get(sig_value, TEXT_MUTED)
-    sig_label = {"BUY": "ПОКУПАТЬ", "SELL": "ПРОДАВАТЬ", "HOLD": "ОЖИДАТЬ"}.get(sig_value, sig_value)
+    # Единая точка истины для шапки PNG — та же, что и в caption.
+    # До рефакторинга PNG использовал effective_signal из /api/signal
+    # (BUY/HOLD/SELL после strong-filter), а caption — master_signal из
+    # /api/positions (BUY/WAIT/AVOID). В одном сообщении могли появиться
+    # рассогласованные «ПОКУПАТЬ» + «ОЖИДАТЬ».
+    master = _resolve_master_status(sig, pos)
+    p_up = master["p_up"]
+    sig_color = master["color"]
+    sig_label = master["label_short"]
 
     # Silver prices в рублях за лот (RUB) — конвертация на каждую дату.
     # Формула: rub_per_lot = USD_close × USDRUB(at_date) × 100 / 31.1035
@@ -655,25 +714,12 @@ def send_portfolio_chart() -> bool:
     positions = pos.get("positions", [])
     n_open = len(positions)
 
-    # === MASTER ASSISTANT verdict ===
-    # master_p_up: pos endpoint первичный, fallback на sig.p_up (если pos в fallback-режиме = 0)
-    master_p_up = float(pos.get("master_p_up", 0)) or float(sig.get("p_up", 0))
-
-    # master_signal: pos endpoint первичный, fallback на маппинг из sig
-    raw_master = pos.get("master_signal", "")
-    if not raw_master or pos.get("master_reason", "").startswith("computed locally"):
-        # Fallback из sig: BUY если passed strong filter (>=0.85), иначе WAIT
-        sig_value = sig.get("signal", "HOLD")
-        master_signal = "BUY" if (sig_value == "BUY" and master_p_up >= 0.85) else "WAIT"
-    else:
-        master_signal = raw_master
-
-    master_emoji = {"BUY": "🟢", "WAIT": "🟡", "AVOID": "🔴"}.get(master_signal, "⚪")
-    master_label = {
-        "BUY":   "ОТКРЫТЬ новую позицию",
-        "WAIT":  "ОЖИДАТЬ (сейчас не входить)",
-        "AVOID": "НЕ ВХОДИТЬ (рынок против)",
-    }.get(master_signal, master_signal)
+    # === MASTER ASSISTANT verdict — один helper для caption и PNG ===
+    master = _resolve_master_status(sig, pos)
+    master_signal = master["signal"]
+    master_p_up   = master["p_up"]
+    master_emoji  = master["emoji"]
+    master_label  = master["label_long"]
     master_reason = pos.get("master_reason", "")
 
     # Цена серебра + изменение по сравнению с предыдущим торговым днём.
@@ -725,42 +771,77 @@ def send_portfolio_chart() -> bool:
     if n_open == 0:
         caption += f"\n💼 <b>Открытых позиций нет</b>\n<i>Ждём сильный сигнал для входа</i>"
     else:
-        # P&L доступен только из backend (/api/positions с расчётами). В fallback его нет
-        # Используем market_pnl_pct (теоретическая рыночная цена, совпадает с UI)
-        # вместо unrealized_pnl_pct (sandbox со spread'ом Tinkoff'а).
-        # Sandbox P&L отображаем дополнительно в скобках для контекста.
-        pnl_values = []
-        sandbox_values = []
+        # Считаем P&L с момента покупки в рублях и процентах.
+        # market_entry_price/market_current_price — теоретическая рублёвая цена лота
+        # на дату входа/сегодня (совпадает с UI). market_pnl_pct — её процентное изменение.
+        # unrealized_pnl_pct — sandbox со spread'ом Tinkoff'а, как fallback.
+        rub_pnl_total = 0.0
+        pnl_pct_values = []
+        oldest_open = None
+        oldest_entry_rub = None
         for p in positions:
-            market_pnl = p.get("market_pnl_pct")
-            sandbox_pnl = p.get("unrealized_pnl_pct")
-            if market_pnl is not None:
-                pnl_values.append(float(market_pnl))
-            elif sandbox_pnl is not None:
-                pnl_values.append(float(sandbox_pnl))
-            if sandbox_pnl is not None:
-                sandbox_values.append(float(sandbox_pnl))
-        if pnl_values:
-            avg_pnl = sum(pnl_values) / len(pnl_values) * 100
-            n_sell_advice = sum(1 for p in positions if p.get("advice") == "SELL")
-            # Если 1 позиция — просто «P&L», иначе «Средний P&L»
-            pnl_label = "P&L" if n_open == 1 else "Средний P&L"
-            caption += (
-                f"\n💼 <b>Портфолио: {n_open}</b> "
-                f"{'позиция' if n_open == 1 else 'позиций'}\n"
-                f"📈 {pnl_label}: <b>{avg_pnl:+.2f}%</b>\n"
-            )
+            entry_rub = float(p.get("market_entry_price", 0))
+            now_rub = float(p.get("market_current_price", 0))
+            lots = int(p.get("lots", 1) or 1)
+            if entry_rub > 0 and now_rub > 0 and lots > 0:
+                rub_pnl_total += (now_rub - entry_rub) * lots
+            mp = p.get("market_pnl_pct")
+            sp = p.get("unrealized_pnl_pct")
+            if mp is not None:
+                pnl_pct_values.append(float(mp))
+            elif sp is not None:
+                pnl_pct_values.append(float(sp))
+            # Старейшая дата покупки — её показываем как «куплено N июн»
+            opened = str(p.get("opened_at", ""))
+            if opened:
+                try:
+                    d = pd.Timestamp(opened.split("T")[0] if "T" in opened else opened)
+                    if oldest_open is None or d < oldest_open:
+                        oldest_open = d
+                        oldest_entry_rub = entry_rub
+                except Exception:
+                    pass
+
+        n_sell_advice = sum(1 for p in positions if p.get("advice") == "SELL")
+        caption += (
+            f"\n💼 <b>Портфолио: {n_open}</b> "
+            f"{'позиция' if n_open == 1 else 'позиций'}\n"
+        )
+
+        if pnl_pct_values:
+            avg_pnl_pct = sum(pnl_pct_values) / len(pnl_pct_values) * 100
+            pnl_arrow = "▲" if avg_pnl_pct > 0 else ("▼" if avg_pnl_pct < 0 else "—")
+            # Заголовок даты покупки
+            if oldest_open is not None:
+                months_ru = ["янв", "фев", "мар", "апр", "мая", "июн",
+                              "июл", "авг", "сен", "окт", "ноя", "дек"]
+                date_str = f"{oldest_open.day} {months_ru[oldest_open.month - 1]}"
+                since_label = f"с покупки ({date_str}" + (
+                    f" по ₽{int(oldest_entry_rub):,}".replace(",", " ") + "/лот)"
+                    if oldest_entry_rub and n_open == 1 else ")"
+                )
+            else:
+                since_label = "с покупки"
+            # Абсолютный ₽-PnL (если посчитан)
+            if abs(rub_pnl_total) > 0.5:
+                rub_str = f"{abs(rub_pnl_total):,.0f}".replace(",", " ")
+                sign = "+" if rub_pnl_total >= 0 else "−"
+                pct_label = "P&L" if n_open == 1 else "Средний P&L"
+                caption += (
+                    f"📈 P&L {since_label}: <b>{sign}₽{rub_str}</b>\n"
+                    f"   {pnl_arrow} {pct_label}: <b>{avg_pnl_pct:+.2f}%</b>\n"
+                )
+            else:
+                pnl_label = "P&L" if n_open == 1 else "Средний P&L"
+                caption += f"📈 {pnl_label} {since_label}: <b>{avg_pnl_pct:+.2f}%</b>\n"
+
             if n_sell_advice:
                 caption += f"⚠ <b>{n_sell_advice}</b> с советом ПРОДАТЬ\n"
             else:
                 caption += "✓ Все позиции рекомендуется ДЕРЖАТЬ\n"
         else:
             # Fallback-режим: позиции есть в DB, но P&L не посчитан (нет backend)
-            caption += (
-                f"\n💼 <b>Портфолио: {n_open}</b> "
-                f"{'позиция' if n_open == 1 else 'позиций'}\n"
-                f"<i>(P&L доступен в Argentum UI — backend не подключён)</i>\n"
-            )
+            caption += f"<i>(P&L доступен в Argentum UI — backend не подключён)</i>\n"
 
     url = f"https://api.telegram.org/bot{token}/sendPhoto"
     try:
