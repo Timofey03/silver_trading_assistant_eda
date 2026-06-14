@@ -30,8 +30,13 @@ export default function PositionSummaryCard() {
       (s, p) => s + (p.market_pnl_pct ?? p.unrealized_pnl_pct) * p.lots,
       0,
     ) / Math.max(1, totalLots);
+  // ВАЖНО: единый источник цен. До этого totalInvested брал raw entry_price
+  // (с Tinkoff slippage'ом, ~15870 ₽), а totalCurrent — market_current_price
+  // (теоретическая, ~15836 ₽). Получался ложный «-2 358 ₽» при том, что
+  // реальная просадка из per-position карточек = -1 167 ₽. Теперь обе стороны
+  // используют market_* и совпадают с per-position P&L.
   const totalInvested = data.positions.reduce(
-    (s, p) => s + p.entry_price * p.lots,
+    (s, p) => s + (p.market_entry_price ?? p.entry_price) * p.lots,
     0,
   );
   const totalCurrent = data.positions.reduce(

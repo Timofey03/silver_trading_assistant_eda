@@ -236,6 +236,11 @@ export interface PositionRecord {
   market_current_price?: number;
   advice: "HOLD" | "SELL";
   advice_reason: string;
+  // Hold-confidence breakdown (см. positions.py:_list_positions_cached)
+  trail_margin?: number;     // [0..1]
+  time_margin?: number;      // [0..1]
+  model_margin?: number;     // [0..1]
+  hold_confidence?: number;  // min(trail, time, model), [0..1]
 }
 
 export interface PositionsResponse {
