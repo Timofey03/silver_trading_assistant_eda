@@ -158,10 +158,13 @@ def _read_positions_from_tinkoff() -> list[dict]:
             # opened_at: Tinkoff sandbox не возвращает дату открытия позиции
             # (averagePositionPrice — это средневзвешенная по нескольким сделкам).
             # Без этого поля чарт-генератор падает с KeyError('opened_at').
-            # Дефолтим на сегодня — для cron-режима это значит «P&L с открытия»
-            # покажется около 0, но критичнее не уронить весь PNG.
+            # Дефолтим на полночь сегодня — для cron-режима «P&L с открытия»
+            # покажется около 0. Формат строго YYYY-MM-DDT00:00:00 без
+            # микросекунд/таймзоны: иначе pd.to_datetime создаст наносекундный
+            # Timestamp, а silver parquet индекс — секундный, и сравнение
+            # упадёт с «Cannot losslessly convert units».
             from datetime import datetime as _dt
-            opened_at = p.get("openedAt") or _dt.now().isoformat()
+            opened_at = p.get("openedAt") or _dt.now().strftime("%Y-%m-%dT00:00:00")
             positions.append({
                 "id":               f"tinkoff_{i}",
                 "ticker":           ticker,
@@ -562,7 +565,11 @@ def generate_portfolio_png() -> bytes:
 
         # Position entry markers — на рублёвой цене лота на дату входа
         for pi, p in enumerate(positions):
-            entry_date = pd.to_datetime(p["opened_at"])
+            # .normalize() обрезает до полуночи, чтобы Timestamp совпадал по
+            # точности с prices.index (DatetimeIndex parquet'а — секундный или
+            # дневной). Без этого pandas 2.x кидает «Cannot losslessly convert
+            # units» при сравнении ns-Timestamp с s-индексом.
+            entry_date = pd.to_datetime(p["opened_at"]).normalize()
             if entry_date < prices.index.min():
                 continue
             # market_entry_price (₽ на дату входа); fallback на ближайший close из графика
