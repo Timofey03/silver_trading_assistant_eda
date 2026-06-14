@@ -217,6 +217,13 @@ function MasterCard({
             <h2
               className="font-[family-name:var(--font-mono)] text-4xl md:text-5xl font-medium tracking-tighter"
               style={{ color: variant.color }}
+              title={
+                data.master_checks && data.master_checks.length
+                  ? data.master_checks
+                      .map((c) => `${c.ok ? "✓" : "✗"} ${c.name}: ${c.detail}`)
+                      .join("\n")
+                  : data.master_reason
+              }
             >
               {variant.label}
             </h2>
@@ -231,6 +238,23 @@ function MasterCard({
             </div>
           </div>
           <p className="text-sm text-[var(--text-muted)] max-w-xl">{variant.sub}</p>
+          {/* Inline checks: всегда видна разбивка из 3 проверок master'а.
+              Зелёный/красный показывает результат, наведение даёт detail. */}
+          {data.master_checks && data.master_checks.length > 0 && (
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs font-[family-name:var(--font-mono)]">
+              {data.master_checks.map((c) => (
+                <span
+                  key={c.name}
+                  title={c.detail}
+                  className="inline-flex items-center gap-1.5"
+                  style={{ color: c.ok ? "#10b98199" : "#f43f5e99" }}
+                >
+                  <span className="text-base leading-none">{c.ok ? "✓" : "✗"}</span>
+                  <span>{c.name}</span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         <motion.button

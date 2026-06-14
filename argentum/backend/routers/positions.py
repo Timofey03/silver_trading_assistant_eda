@@ -83,11 +83,18 @@ class Position(BaseModel):
     hold_confidence: float = 0.0  # min(trail, time, model)
 
 
+class MasterCheck(BaseModel):
+    name: str
+    ok: bool
+    detail: str
+
+
 class PositionsResponse(BaseModel):
     positions: list[Position]
     master_signal: str           # BUY / WAIT / AVOID
     master_reason: str
     master_p_up: float = 0.0
+    master_checks: list[MasterCheck] = []   # три проверки решения BUY/WAIT
     n_open: int = 0
     can_buy: bool = False
 
@@ -308,48 +315,84 @@ def _advise_position(pos: dict, current_price: float, p_smooth: float) -> tuple[
 
 # ─── Master assistant ───────────────────────────────────────────────────────
 
-def _master_advise(positions: list[dict], p_smooth: float) -> tuple[str, str, bool]:
+def _master_advise(positions: list[dict], p_smooth: float) -> tuple[str, str, bool, list[dict]]:
     """
-    Возвращает (signal, reason, can_buy).
+    Возвращает (signal, reason, can_buy, checks).
+
+    checks — список из 3 словарей {name, ok, detail} для UI-tooltip'а.
+    Считаем ВСЕ три проверки независимо от того, какая упала первой,
+    чтобы юзер сразу видел полную картину «почему ОЖИДАТЬ».
     """
     n_open = len(positions)
     max_pos = DEFAULTS["max_positions"]
     cooldown_d = DEFAULTS["buy_cooldown_d"]
     entry_strong = DEFAULTS["entry_strong"]
 
-    # 1. Strong signal check
-    if p_smooth < 0.30:
-        return "AVOID", f"p_up слишком низкий ({p_smooth:.2f}) — рынок против", False
+    # Check 1: сила сигнала
+    signal_ok = p_smooth >= entry_strong
+    signal_detail = (
+        f"уверенность {p_smooth*100:.0f}% (нужно ≥ {entry_strong*100:.0f}%)"
+        if signal_ok
+        else f"уверенность {p_smooth*100:.0f}% (мало — нужно ≥ {entry_strong*100:.0f}%)"
+    )
 
-    if p_smooth < entry_strong:
+    # Check 2: свободные слоты
+    slots_ok = n_open < max_pos
+    slots_detail = (
+        f"{n_open}/{max_pos} слотов занято"
+        if slots_ok
+        else f"все {max_pos} слотов заняты"
+    )
+
+    # Check 3: пауза между покупками
+    cooldown_ok = True
+    cooldown_detail = "первая покупка"
+    days_since_last: int = cooldown_d
+    if positions:
+        try:
+            last_open = max(p["opened_at"] for p in positions)
+            last_d = datetime.fromisoformat(last_open.replace("Z", "")).date()
+            days_since_last = (date.today() - last_d).days
+            cooldown_ok = days_since_last >= cooldown_d
+            cooldown_detail = (
+                f"{days_since_last} дн с последней покупки (≥ {cooldown_d})"
+                if cooldown_ok
+                else f"{days_since_last}/{cooldown_d} дн с последней покупки — ждём паузу"
+            )
+        except Exception:
+            pass
+
+    checks = [
+        {"name": "сила сигнала",        "ok": signal_ok,   "detail": signal_detail},
+        {"name": "свободные слоты",     "ok": slots_ok,    "detail": slots_detail},
+        {"name": "пауза между покупками","ok": cooldown_ok, "detail": cooldown_detail},
+    ]
+
+    # 1. Strong signal check (включая AVOID для очень низкого)
+    if p_smooth < 0.30:
+        return "AVOID", f"p_up слишком низкий ({p_smooth:.2f}) — рынок против", False, checks
+
+    if not signal_ok:
         return "WAIT", (
             f"сигнал в зоне шума (p_up = {p_smooth:.2f}, нужно ≥ {entry_strong}) — "
             f"ждём подтверждения"
-        ), False
+        ), False, checks
 
     # 2. Max positions
-    if n_open >= max_pos:
-        return "WAIT", f"уже {n_open} открытых позиций (макс {max_pos}) — место занято", False
+    if not slots_ok:
+        return "WAIT", f"уже {n_open} открытых позиций (макс {max_pos}) — место занято", False, checks
 
     # 3. Cooldown с последней покупки
-    if positions:
-        last_open = max(p["opened_at"] for p in positions)
-        try:
-            last_d = datetime.fromisoformat(last_open.replace("Z", "")).date()
-            days_since = (date.today() - last_d).days
-            if days_since < cooldown_d:
-                return "WAIT", (
-                    f"cooldown {days_since}/{cooldown_d} дней с последней покупки "
-                    f"({last_d})"
-                ), False
-        except Exception:
-            pass
+    if not cooldown_ok:
+        return "WAIT", (
+            f"cooldown {days_since_last}/{cooldown_d} дней с последней покупки"
+        ), False, checks
 
     # All checks passed
     return "BUY", (
         f"strong signal (p_up = {p_smooth:.2f} ≥ {entry_strong}) · "
         f"{n_open}/{max_pos} позиций · open для нового лота"
-    ), True
+    ), True, checks
 
 
 # ─── Routes ─────────────────────────────────────────────────────────────────
@@ -482,11 +525,12 @@ def _list_positions_cached() -> dict:
 
     # Persist peak updates
     _save_positions(raw)
-    master, mreason, can_buy = _master_advise(raw, p_smooth)
+    master, mreason, can_buy, checks = _master_advise(raw, p_smooth)
     return {
         "positions_data": positions_out,
         "master_signal": master, "master_reason": mreason,
         "master_p_up": p_smooth, "n_open": len(positions_out),
+        "master_checks": checks,
         "can_buy": can_buy,
     }
 
@@ -501,6 +545,7 @@ def list_positions():
         master_signal=cached["master_signal"],
         master_reason=cached["master_reason"],
         master_p_up=cached["master_p_up"],
+        master_checks=cached.get("master_checks", []),
         n_open=cached["n_open"],
         can_buy=cached["can_buy"],
     )
@@ -544,12 +589,13 @@ def _list_positions_OLD_BACKUP():
     # Persist updated peaks
     _save_positions(raw)
 
-    master, mreason, can_buy = _master_advise(raw, p_smooth)
+    master, mreason, can_buy, checks = _master_advise(raw, p_smooth)
     return PositionsResponse(
         positions=positions_out,
         master_signal=master,
         master_reason=mreason,
         master_p_up=p_smooth,
+        master_checks=checks,
         n_open=len(positions_out),
         can_buy=can_buy,
     )
@@ -564,7 +610,7 @@ def open_position(req: OpenPositionRequest):
     # Pre-check: master assistant
     existing = _load_positions()
     p_smooth = _current_p_up_smoothed()
-    _, mreason, can_buy = _master_advise(existing, p_smooth)
+    _, mreason, can_buy, _ = _master_advise(existing, p_smooth)
     if not can_buy:
         return OpenPositionResponse(
             success=False,
