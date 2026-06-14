@@ -231,9 +231,6 @@ function MasterCard({
             </div>
           </div>
           <p className="text-sm text-[var(--text-muted)] max-w-xl">{variant.sub}</p>
-          <p className="text-xs text-[var(--text-faint)] font-[family-name:var(--font-mono)] max-w-xl">
-            {data.master_reason}
-          </p>
         </div>
 
         <motion.button
@@ -261,6 +258,30 @@ function MasterCard({
   );
 }
 
+function ConfidenceBar({ label, pct, tooltip }: { label: string; pct: number; tooltip: string }) {
+  const p = Math.max(0, Math.min(1, pct));
+  const color = p >= 0.8 ? "#10b981" : p >= 0.5 ? "#f59e0b" : "#f43f5e";
+  return (
+    <div className="flex items-center gap-3" title={tooltip}>
+      <span className="w-12 text-[10px] text-[var(--text-faint)] font-[family-name:var(--font-mono)] uppercase">
+        {label}
+      </span>
+      <div className="flex-1 h-1.5 rounded-full bg-[var(--bg-base)] overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all"
+          style={{ width: `${p * 100}%`, backgroundColor: color }}
+        />
+      </div>
+      <span
+        className="w-10 text-right text-[10px] font-[family-name:var(--font-mono)] tabular-nums"
+        style={{ color }}
+      >
+        {Math.round(p * 100)}%
+      </span>
+    </div>
+  );
+}
+
 function PositionCard({
   position, idx, busy, onClose,
 }: {
@@ -271,6 +292,9 @@ function PositionCard({
   const effectivePnl = position.market_pnl_pct ?? position.unrealized_pnl_pct;
   const isUp = effectivePnl > 0;
   const pnlColor = isUp ? "#10b981" : "#f43f5e";
+  // Hold-confidence breakdown (min из 3 компонент advisor'а)
+  const holdConf = position.hold_confidence ?? 0;
+  const confColor = holdConf >= 0.8 ? "#10b981" : holdConf >= 0.5 ? "#f59e0b" : "#f43f5e";
   const cardBorder = isSell ? "border-rose-500/30" : "border-[var(--border)]";
   const cardBg = isSell
     ? "bg-gradient-to-br from-rose-500/[0.04] via-transparent to-transparent"
@@ -354,6 +378,39 @@ function PositionCard({
               `P&L ${formatPct(effectivePnl * 100, 2)}`,
             )}
           </div>
+
+          {/* Hold-confidence breakdown — min(trail, time, model). Заголовок
+              = «по какой причине тебя выкинут раньше всего», три бара под ним
+              показывают разбивку. Меньше 50% = красный, 50-80 жёлтый, ≥80 зелёный. */}
+          {position.hold_confidence !== undefined && (
+            <div className="mt-2 rounded-lg border border-[var(--border-soft)] bg-[var(--bg-base)]/40 px-3 py-2 space-y-1.5">
+              <div className="flex items-center justify-between text-[11px] uppercase tracking-widest">
+                <span className="text-[var(--text-faint)]">уверенность держать</span>
+                <span
+                  className="font-[family-name:var(--font-mono)] font-medium tabular-nums"
+                  style={{ color: confColor }}
+                  title="min(trail, time, model) — самый близкий SELL-триггер"
+                >
+                  {Math.round(holdConf * 100)}%
+                </span>
+              </div>
+              <ConfidenceBar
+                label="trail"
+                pct={position.trail_margin ?? 0}
+                tooltip="Запас до trailing-stop'а (peak × 0.80). Чем ближе цена к stop'у, тем меньше"
+              />
+              <ConfidenceBar
+                label="time"
+                pct={position.time_margin ?? 0}
+                tooltip={`Оставшееся время удержания (max ${60} дней). 0% = пора закрывать по сроку`}
+              />
+              <ConfidenceBar
+                label="model"
+                pct={position.model_margin ?? 0}
+                tooltip="Запас smoothed p_up над exit_threshold (0.30). Одинаков для всех позиций — market-wide сигнал"
+              />
+            </div>
+          )}
 
           <div className="flex items-center gap-4 text-[11px] text-[var(--text-faint)] font-[family-name:var(--font-mono)] flex-wrap">
             {position.source === "tinkoff_sync" ? (

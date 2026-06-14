@@ -74,6 +74,13 @@ class Position(BaseModel):
     market_current_price: float = 0.0         # теоретическая market цена сейчас
     advice: str = "HOLD"
     advice_reason: str = ""
+    # Hold-confidence breakdown — каждая компонента [0..1], показывает «запас
+    # до соответствующего SELL-триггера». Заголовок карточки = min из них
+    # (= «по какой причине тебя выкинут раньше всего»), под ним 3 бара.
+    trail_margin: float = 0.0    # (current − trail_stop) / (peak − trail_stop)
+    time_margin: float = 0.0     # 1 − days_held / max_hold_days
+    model_margin: float = 0.0    # (p_up_smoothed − exit_threshold) / (1 − exit_threshold)
+    hold_confidence: float = 0.0  # min(trail, time, model)
 
 
 class PositionsResponse(BaseModel):
@@ -434,6 +441,23 @@ def _list_positions_cached() -> dict:
 
         advice, reason = _advise_position(p, current_price, p_smooth)
 
+        # Per-position hold-confidence breakdown.
+        # Считаем «запас» до каждого из трёх SELL-триггеров advisor'а в [0..1].
+        # min из них — главное число «уверенность держать»; три компоненты идут
+        # в UI как мини-бары, чтобы видно было, что именно слабое.
+        trail_pct = DEFAULTS["trail_pct"]            # 0.20
+        max_hold_d = DEFAULTS["max_hold_days"]       # 60
+        exit_th = DEFAULTS["exit_threshold"]         # 0.30
+        trail_stop = new_peak * (1 - trail_pct)
+        trail_margin = 0.0
+        if new_peak > trail_stop and current_price > trail_stop:
+            trail_margin = max(0.0, min(1.0, (current_price - trail_stop) / (new_peak - trail_stop)))
+        time_margin = max(0.0, min(1.0, 1.0 - days_held / max_hold_d))
+        model_margin = 0.0
+        if p_smooth > exit_th:
+            model_margin = max(0.0, min(1.0, (p_smooth - exit_th) / (1.0 - exit_th)))
+        hold_confidence = min(trail_margin, time_margin, model_margin)
+
         positions_out.append({
             "id": p["id"], "ticker": p["ticker"], "figi": p["figi"],
             "opened_at": p["opened_at"], "entry_price": p["entry_price"],
@@ -445,6 +469,10 @@ def _list_positions_cached() -> dict:
             "market_entry_price": market_entry,
             "market_current_price": market_current,
             "advice": advice, "advice_reason": reason,
+            "trail_margin": trail_margin,
+            "time_margin": time_margin,
+            "model_margin": model_margin,
+            "hold_confidence": hold_confidence,
         })
 
     # Persist peak updates

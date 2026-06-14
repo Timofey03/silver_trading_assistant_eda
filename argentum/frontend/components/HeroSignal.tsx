@@ -163,16 +163,17 @@ export default function HeroSignal({
           {v.label}
         </motion.h1>
 
-        {/* Подзаголовок — причина master'а если он переопределил модель,
-            иначе общая фраза варианта. Так Сейчас совпадает с Позиции
-            («cooldown 2/5 дней с последней покупки» и т.п.). */}
+        {/* Подзаголовок — общая фраза варианта. Раньше показывали
+            master_reason (cooldown / max_positions и т.п.), но это
+            слишком технический детализ для главной — оставляем только
+            на /positions через всплывающую подсказку. */}
         <motion.p
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5, duration: 0.6 }}
           className="mt-8 max-w-md text-base md:text-lg text-[var(--text-secondary)] leading-relaxed"
         >
-          {masterReason ?? v.sub}
+          {v.sub}
         </motion.p>
 
         {/* Confidence */}
