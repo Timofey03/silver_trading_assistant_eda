@@ -155,13 +155,22 @@ def _read_positions_from_tinkoff() -> list[dict]:
             figi = p.get("figi", "")
             ticker = "SLVRUBF" if figi == "FSLVRUB00000" else figi
 
+            # opened_at: Tinkoff sandbox не возвращает дату открытия позиции
+            # (averagePositionPrice — это средневзвешенная по нескольким сделкам).
+            # Без этого поля чарт-генератор падает с KeyError('opened_at').
+            # Дефолтим на сегодня — для cron-режима это значит «P&L с открытия»
+            # покажется около 0, но критичнее не уронить весь PNG.
+            from datetime import datetime as _dt
+            opened_at = p.get("openedAt") or _dt.now().isoformat()
             positions.append({
                 "id":               f"tinkoff_{i}",
                 "ticker":           ticker,
                 "figi":             figi,
+                "opened_at":        opened_at,
                 "entry_price":      avg_price,
                 "lots":             int(qty),
                 "lot_size_g":       100 if ticker == "SLVRUBF" else 1,
+                "peak_price":       max(avg_price, current_price),
                 "current_price":    current_price,
                 "unrealized_pnl_pct": pnl_pct,
                 "advice":           "HOLD",
