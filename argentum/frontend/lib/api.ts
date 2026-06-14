@@ -240,7 +240,13 @@ export interface PositionRecord {
   trail_margin?: number;     // [0..1]
   time_margin?: number;      // [0..1]
   model_margin?: number;     // [0..1]
-  hold_confidence?: number;  // min(trail, time, model), [0..1]
+  hold_confidence?: number;  // 0.4·trail + 0.3·time + 0.3·model, [0..1]
+}
+
+export interface MasterCheck {
+  name: string;
+  ok: boolean;
+  detail: string;
 }
 
 export interface PositionsResponse {
@@ -248,6 +254,7 @@ export interface PositionsResponse {
   master_signal: "BUY" | "WAIT" | "AVOID";
   master_reason: string;
   master_p_up: number;
+  master_checks?: MasterCheck[];
   n_open: number;
   can_buy: boolean;
 }
