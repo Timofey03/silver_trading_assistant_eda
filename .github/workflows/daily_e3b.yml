@@ -45,6 +45,11 @@ jobs:
           # Telegram notifications (опционально)
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID:   ${{ secrets.TG_CHAT_ID }}
+          # Tinkoff sandbox — для fallback'а в send_portfolio_chart: cron-раннер
+          # делает fresh checkout без локальной argentum.db (правильно в gitignore,
+          # юзер-данные не коммитим), и без этого токена PNG-чарт в TG показывает
+          # «0 позиций», хотя в Tinkoff sandbox у юзера открыты ордера.
+          TINKOFF_TOKEN: ${{ secrets.TINKOFF_TOKEN }}
           # Daily heartbeat — на утреннем cron (08:00 MSK = 05:00 UTC)
           # шлём TG даже при is_repeat, чтобы юзер видел что система жива.
           # На дневном/вечернем cron — только при смене сигнала.
