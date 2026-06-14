@@ -6,7 +6,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
 import { TrendingUp, TrendingDown, Minus, Info, Check, X, Loader2 } from "lucide-react";
-import { api, type SignalResponse, type OrderResponse } from "@/lib/api";
+import { api, type SignalResponse, type OrderResponse, type PositionsResponse } from "@/lib/api";
 
 const STRONG_THRESHOLD = 0.85;     // совпадает с backend strong-signal filter
 
@@ -46,18 +46,42 @@ const variants = {
   },
 } as const;
 
-export default function HeroSignal({ signal }: { signal: SignalResponse }) {
-  // Apply strong-signal filter — единая логика с /positions master assistant
+export default function HeroSignal({
+  signal,
+  positions,
+}: {
+  signal: SignalResponse;
+  positions?: PositionsResponse;
+}) {
+  // Apply strong-signal filter — это сырая «модельная» рекомендация (без cooldown).
   // Сырая модель: signal=BUY если p_up >= 0.48 (слабый порог)
   // Фактическое решение: BUY только если p_up >= 0.85 (strong filter)
   const passesStrongFilter = signal.p_up >= STRONG_THRESHOLD;
-  const effectiveSignal: "BUY" | "HOLD" | "SELL" =
+  const modelSignal: "BUY" | "HOLD" | "SELL" =
     signal.signal === "BUY" && !passesStrongFilter
-      ? "HOLD"  // raw BUY но в шумовой зоне → реально HOLD
+      ? "HOLD"
       : signal.signal;
 
+  // Master verdict из /api/positions — учитывает cooldown / max_positions / cash.
+  // Если он говорит WAIT/AVOID — отображаем именно его, чтобы Сейчас и Позиции
+  // не расходились (раньше Сейчас писал ПОКУПАТЬ при активном cooldown).
+  // SELL — позиционный совет, его форсить master'ом не нужно.
+  const masterVerdict = positions?.master_signal;
+  let effectiveSignal: "BUY" | "HOLD" | "SELL" = modelSignal;
+  let masterReason: string | null = null;
+  if (modelSignal !== "SELL" && masterVerdict && masterVerdict !== "BUY") {
+    // WAIT / AVOID от master → показываем ОЖИДАТЬ с причиной
+    effectiveSignal = "HOLD";
+    masterReason = positions?.master_reason || null;
+  }
+
   const v = variants[effectiveSignal];
-  const confidence = Math.round(signal.p_up * 100);
+  // confidence: при WAIT/AVOID показываем master_p_up (он тоже smoothed,
+  // совпадает с числом на вкладке Позиции)
+  const displayedPUp = (masterReason && positions?.master_p_up)
+    ? positions.master_p_up
+    : signal.p_up;
+  const confidence = Math.round(displayedPUp * 100);
   const Icon = v.icon;
 
   const [orderStatus, setOrderStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
@@ -139,14 +163,16 @@ export default function HeroSignal({ signal }: { signal: SignalResponse }) {
           {v.label}
         </motion.h1>
 
-        {/* Подзаголовок */}
+        {/* Подзаголовок — причина master'а если он переопределил модель,
+            иначе общая фраза варианта. Так Сейчас совпадает с Позиции
+            («cooldown 2/5 дней с последней покупки» и т.п.). */}
         <motion.p
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5, duration: 0.6 }}
           className="mt-8 max-w-md text-base md:text-lg text-[var(--text-secondary)] leading-relaxed"
         >
-          {v.sub}
+          {masterReason ?? v.sub}
         </motion.p>
 
         {/* Confidence */}

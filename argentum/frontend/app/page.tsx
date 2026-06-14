@@ -7,6 +7,7 @@ import {
   type PriceResponse,
   type ExplainResponse,
   type FxRates,
+  type PositionsResponse,
 } from "@/lib/api";
 import { formatPct, formatUsd, formatRub } from "@/lib/utils";
 import { Sparkles } from "lucide-react";
@@ -21,7 +22,10 @@ async function safeApi<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 }
 
 export default async function HomePage() {
-  const [signal, price, explain, fx] = await Promise.all([
+  // positions подтягиваем чтобы master-сигнал (с учётом cooldown/limits/cash)
+  // синхронизировался с вкладкой «Позиции». До этого Hero показывал «ПОКУПАТЬ»
+  // даже когда master говорил «ОЖИДАТЬ» из-за активного cooldown.
+  const [signal, price, explain, fx, positions] = await Promise.all([
     safeApi(api.signal, {
       signal: "HOLD", date: "—", close: 0, p_up: 0,
       entry_threshold: 0.48, exit_threshold: 0.35,
@@ -41,11 +45,15 @@ export default async function HomePage() {
       usdrub_change_5d_pct: 0, fx_volatility_flag: false,
       source: "offline", last_update: "—",
     } as FxRates),
+    safeApi(api.positions, {
+      positions: [], master_signal: "WAIT", master_reason: "",
+      master_p_up: 0, n_open: 0, can_buy: false,
+    } as PositionsResponse),
   ]);
 
   return (
     <div className="space-y-10">
-      <HeroSignal signal={signal} />
+      <HeroSignal signal={signal} positions={positions} />
       <PositionSummaryCard />
       <PriceCard price={price} fx={fx} />
       <FeatureContribution />
