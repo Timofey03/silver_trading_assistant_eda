@@ -263,7 +263,7 @@ function ConfidenceBar({ label, pct, tooltip }: { label: string; pct: number; to
   const color = p >= 0.8 ? "#10b981" : p >= 0.5 ? "#f59e0b" : "#f43f5e";
   return (
     <div className="flex items-center gap-3" title={tooltip}>
-      <span className="w-12 text-[10px] text-[var(--text-faint)] font-[family-name:var(--font-mono)] uppercase">
+      <span className="w-36 shrink-0 text-[11px] text-[var(--text-muted)] font-[family-name:var(--font-mono)]">
         {label}
       </span>
       <div className="flex-1 h-1.5 rounded-full bg-[var(--bg-base)] overflow-hidden">
@@ -273,7 +273,7 @@ function ConfidenceBar({ label, pct, tooltip }: { label: string; pct: number; to
         />
       </div>
       <span
-        className="w-10 text-right text-[10px] font-[family-name:var(--font-mono)] tabular-nums"
+        className="w-10 text-right text-[11px] font-[family-name:var(--font-mono)] tabular-nums"
         style={{ color }}
       >
         {Math.round(p * 100)}%
@@ -292,7 +292,8 @@ function PositionCard({
   const effectivePnl = position.market_pnl_pct ?? position.unrealized_pnl_pct;
   const isUp = effectivePnl > 0;
   const pnlColor = isUp ? "#10b981" : "#f43f5e";
-  // Hold-confidence breakdown (min из 3 компонент advisor'а)
+  // Hold-confidence: взвешенное среднее по 3 компонентам advisor'а
+  // (0.4 цена + 0.3 срок + 0.3 модель) — детали в карточке ниже.
   const holdConf = position.hold_confidence ?? 0;
   const confColor = holdConf >= 0.8 ? "#10b981" : holdConf >= 0.5 ? "#f59e0b" : "#f43f5e";
   const cardBorder = isSell ? "border-rose-500/30" : "border-[var(--border)]";
@@ -326,6 +327,15 @@ function PositionCard({
           <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest"
                style={{ color: isSell ? "#f43f5e" : "#10b981" }}>
             <span>{isSell ? "РЕКОМЕНДУЕТ ПРОДАТЬ" : "ДЕРЖАТЬ"}</span>
+            {position.hold_confidence !== undefined && !isSell && (
+              <span
+                className="font-[family-name:var(--font-mono)] tabular-nums normal-case tracking-normal"
+                style={{ color: confColor }}
+                title="Общая уверенность держать позицию: взвешенное среднее (0.4·цена + 0.3·срок + 0.3·модель). Разбивка ниже."
+              >
+                · {Math.round(holdConf * 100)}%
+              </span>
+            )}
             <span className="text-[var(--text-faint)]/50">·</span>
             <span className="text-[var(--text-faint)]">{position.ticker} · {position.lots} лот</span>
             {position.source === "tinkoff_sync" && (
@@ -379,33 +389,24 @@ function PositionCard({
             )}
           </div>
 
-          {/* Hold-confidence breakdown — min(trail, time, model). Заголовок
-              = «по какой причине тебя выкинут раньше всего», три бара под ним
-              показывают разбивку. Меньше 50% = красный, 50-80 жёлтый, ≥80 зелёный. */}
+          {/* Разбивка уверенности на 3 составляющие SELL-триггеров advisor'а.
+              Итоговое число теперь в шапке рядом с «ДЕРЖАТЬ». Здесь — детали:
+              видно, какая компонента «тянет» уверенность вниз.
+              Меньше 50% = красный, 50–80 жёлтый, ≥80 зелёный. */}
           {position.hold_confidence !== undefined && (
             <div className="mt-2 rounded-lg border border-[var(--border-soft)] bg-[var(--bg-base)]/40 px-3 py-2 space-y-1.5">
-              <div className="flex items-center justify-between text-[11px] uppercase tracking-widest">
-                <span className="text-[var(--text-faint)]">уверенность держать</span>
-                <span
-                  className="font-[family-name:var(--font-mono)] font-medium tabular-nums"
-                  style={{ color: confColor }}
-                  title="min(trail, time, model) — самый близкий SELL-триггер"
-                >
-                  {Math.round(holdConf * 100)}%
-                </span>
-              </div>
               <ConfidenceBar
-                label="trail"
+                label="цена выше стопа"
                 pct={position.trail_margin ?? 0}
-                tooltip="Запас до trailing-stop'а (peak × 0.80). Чем ближе цена к stop'у, тем меньше"
+                tooltip="Запас от текущей цены до trailing-stop'а (peak × 0.80). 100% = только что был новый максимум, 0% = стоп прямо сейчас"
               />
               <ConfidenceBar
-                label="time"
+                label="время до закрытия"
                 pct={position.time_margin ?? 0}
-                tooltip={`Оставшееся время удержания (max ${60} дней). 0% = пора закрывать по сроку`}
+                tooltip={`Сколько осталось дней до автозакрытия по сроку (max ${60} дней). 100% = только открыли, 0% = время вышло`}
               />
               <ConfidenceBar
-                label="model"
+                label="уверенность модели"
                 pct={position.model_margin ?? 0}
                 tooltip="Запас smoothed p_up над exit_threshold (0.30). Одинаков для всех позиций — market-wide сигнал"
               />

@@ -443,8 +443,13 @@ def _list_positions_cached() -> dict:
 
         # Per-position hold-confidence breakdown.
         # Считаем «запас» до каждого из трёх SELL-триггеров advisor'а в [0..1].
-        # min из них — главное число «уверенность держать»; три компоненты идут
-        # в UI как мини-бары, чтобы видно было, что именно слабое.
+        # Главное число — взвешенное среднее (не min): юзер хочет видеть
+        # «общую картину», а не «слабое звено». Веса:
+        #   trail 0.4 — самая острая угроза (триггер → SELL в течение часов)
+        #   time  0.3 — известный дедлайн, ползёт постепенно
+        #   model 0.3 — market-wide, медленно меняется
+        # Каждая компонента всё равно показывается своим баром, так что
+        # «слабое звено» по-прежнему видно глазами.
         trail_pct = DEFAULTS["trail_pct"]            # 0.20
         max_hold_d = DEFAULTS["max_hold_days"]       # 60
         exit_th = DEFAULTS["exit_threshold"]         # 0.30
@@ -456,7 +461,7 @@ def _list_positions_cached() -> dict:
         model_margin = 0.0
         if p_smooth > exit_th:
             model_margin = max(0.0, min(1.0, (p_smooth - exit_th) / (1.0 - exit_th)))
-        hold_confidence = min(trail_margin, time_margin, model_margin)
+        hold_confidence = 0.4 * trail_margin + 0.3 * time_margin + 0.3 * model_margin
 
         positions_out.append({
             "id": p["id"], "ticker": p["ticker"], "figi": p["figi"],
