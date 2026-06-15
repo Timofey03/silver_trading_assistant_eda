@@ -4,6 +4,7 @@ import Link from "next/link";
 import "./globals.css";
 import ThemeToggle from "@/components/ThemeToggle";
 import PushNotifications from "@/components/PushNotifications";
+import ExtensionErrorFilter from "@/components/ExtensionErrorFilter";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -36,6 +37,7 @@ export default function RootLayout({
       data-scroll-behavior="smooth"
     >
       <body className="bg-noise min-h-screen antialiased">
+        <ExtensionErrorFilter />
         <header className="sticky top-0 z-50 border-b border-[var(--border-soft)] bg-[var(--bg-base)]/80 backdrop-blur-xl">
           <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
             <Link
