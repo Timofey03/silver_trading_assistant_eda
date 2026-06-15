@@ -415,12 +415,33 @@ def _resolve_master_status(sig: dict, pos: dict) -> dict:
         or master_reason.startswith("из Tinkoff")
     )
     if fallback_mode:
-        # Сами производим master из signal endpoint
+        # Сами производим master из signal endpoint, повторяя логику
+        # backend'а _master_advise: strong-filter + слоты + cooldown.
+        # До этого фикса cron знал только про strong-filter и игнорировал
+        # cooldown — отсюда «ПОКУПАТЬ» через 3 дня после последней покупки.
+        MAX_POSITIONS = 3
+        COOLDOWN_D = 14            # должно совпадать с DEFAULTS.buy_cooldown_d
+        positions = pos.get("positions", []) or []
+        n_open = len(positions)
         raw_sig = sig.get("raw_signal") or sig.get("signal", "HOLD")
-        if raw_sig == "BUY" and p_up >= STRONG_THRESHOLD:
-            signal = "BUY"
-        else:
-            signal = "WAIT"
+
+        # Check 1: strong-filter
+        signal_ok = raw_sig == "BUY" and p_up >= STRONG_THRESHOLD
+        # Check 2: слоты
+        slots_ok = n_open < MAX_POSITIONS
+        # Check 3: cooldown
+        cooldown_ok = True
+        if positions:
+            try:
+                from datetime import datetime as _dt, date as _date
+                last_open_str = max(str(p.get("opened_at", "")) for p in positions)
+                last_d = _dt.fromisoformat(last_open_str.replace("Z", "")).date()
+                days_since = (_dt.now().date() - last_d).days
+                cooldown_ok = days_since >= COOLDOWN_D
+            except Exception:
+                pass
+
+        signal = "BUY" if (signal_ok and slots_ok and cooldown_ok) else "WAIT"
     else:
         signal = raw_master
 
