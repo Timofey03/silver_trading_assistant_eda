@@ -1,0 +1,24 @@
+[
+  {
+    "id": "86c5f03b-ddec-416c-90bb-0c8f9c34e2ed",
+    "ticker": "SLVRUBF",
+    "figi": "FSLVRUB00000",
+    "opened_at": "2026-05-25T21:44:19.169696",
+    "entry_price": 18144.0,
+    "lots": 1,
+    "lot_size_g": 100,
+    "peak_price": 18144.0,
+    "source": "user_manual_seed"
+  },
+  {
+    "id": "31f48fd8-d771-4a2f-9c8d-16ffebf78539",
+    "ticker": "SLVRUBF",
+    "figi": "FSLVRUB00000",
+    "opened_at": "2026-06-12T10:00:00",
+    "entry_price": 15869.74,
+    "lots": 1,
+    "lot_size_g": 100,
+    "peak_price": 16236.000000000002,
+    "source": "user_manual_backdated"
+  }
+]

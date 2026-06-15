@@ -35,12 +35,16 @@ daily_reports/cache/
 # Production model pickle — большой, регенерируется при daily run
 baseline_outputs_prod/production_model.pkl
 
-# Argentum runtime data — пользовательские позиции + кеши, не для GitHub
+# Argentum runtime data — пользовательские позиции + кеши.
+# positions.json теперь СИНХРОНИЗИРУЕТСЯ в git: backend пушит снапшот
+# при каждом open/close (с 60-сек debounce'ом), cron читает оттуда.
+# Это нужно чтобы TG-уведомление и сайт показывали одно и то же.
+# Если не хочешь видеть свои позиции в git-истории — добавь обратно
+# `positions.json` в gitignore и cron вернётся на Tinkoff fallback.
 argentum/backend/data/cache.pkl
 argentum/backend/data/argentum.db
 argentum/backend/data/argentum.db-shm
 argentum/backend/data/argentum.db-wal
-argentum/backend/data/positions.json
 argentum/backend/data/positions.json.imported
 
 # Node deps + build

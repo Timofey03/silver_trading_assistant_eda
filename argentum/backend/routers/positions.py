@@ -47,7 +47,12 @@ DEFAULTS = {
     "exit_threshold":  0.30,
     "entry_strong":    0.85,    # smoothed p_up для master BUY signal
     "max_positions":   3,
-    "buy_cooldown_d":  5,
+    # cooldown между покупками: 14 дней = МИНИМУМ из 94 сделок backtest'а
+    # (за 11 лет модель ни разу не входила быстрее 14 дней после прошлого
+    # входа; медиана gap'а 21 день, 75-й персентиль 40 дней). Старое
+    # значение 5 дней давало false-дубли — например, alert «ПОКУПАТЬ»
+    # через 1 день после открытия в 2026-06-15.
+    "buy_cooldown_d":  14,
     "lot_size_g":      100,
     "free_cash_buffer": 1.2,
 }
@@ -142,6 +147,71 @@ def _save_positions(positions: list[dict]) -> None:
             positions_db.update_peak(p["id"], float(p.get("peak_price", 0)))
         except Exception:
             pass
+
+
+# ─── Git-sync positions.json → origin/main ──────────────────────────────────
+# Cron на GHA не видит локальный SQLite — без sync'а TG-уведомление и сайт
+# показывают разные позиции. Backend пишет positions.json после каждого
+# insert/delete + дебаунсит commit+push на 60 сек (несколько действий
+# подряд → один коммит). Cron читает positions.json из репо.
+import subprocess as _subprocess
+import threading as _threading
+
+_sync_timer: Optional["_threading.Timer"] = None
+_sync_lock = _threading.Lock()
+
+
+def _dump_positions_to_json() -> None:
+    """Сериализуем SQLite → positions.json (синхронно, < 5 мс)."""
+    try:
+        positions = positions_db.list_positions()
+        # Сортируем по opened_at для стабильного diff'а в git
+        positions.sort(key=lambda p: str(p.get("opened_at", "")))
+        POSITIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        POSITIONS_FILE.write_text(
+            json.dumps(positions, indent=2, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
+    except Exception as e:
+        print(f"[positions sync] dump failed: {e}")
+
+
+def _do_commit_push() -> None:
+    """Background task: commit positions.json + push origin/main."""
+    try:
+        repo_root = REPO_ROOT
+        rel = POSITIONS_FILE.relative_to(repo_root).as_posix()
+        # Стейджим только positions.json — не трогаем чужие правки
+        _subprocess.run(["git", "add", "--", rel],
+                        cwd=str(repo_root), check=False, capture_output=True)
+        # Если ничего не изменилось — выходим тихо
+        check = _subprocess.run(["git", "diff", "--cached", "--quiet", "--", rel],
+                                cwd=str(repo_root), check=False)
+        if check.returncode == 0:
+            return
+        _subprocess.run(
+            ["git", "commit", "-m", "sync(positions): argentum snapshot [skip ci]"],
+            cwd=str(repo_root), check=False, capture_output=True,
+        )
+        _subprocess.run(
+            ["git", "push", "origin", "main"],
+            cwd=str(repo_root), check=False, capture_output=True, timeout=30,
+        )
+        print(f"[positions sync] pushed snapshot")
+    except Exception as e:
+        print(f"[positions sync] commit/push failed: {e}")
+
+
+def _schedule_sync() -> None:
+    """Дебаунс 60 сек: отменяем pending таймер и ставим новый."""
+    global _sync_timer
+    _dump_positions_to_json()  # JSON пишем сразу, push — отложенно
+    with _sync_lock:
+        if _sync_timer is not None:
+            _sync_timer.cancel()
+        _sync_timer = _threading.Timer(60.0, _do_commit_push)
+        _sync_timer.daemon = True
+        _sync_timer.start()
 
 
 # ─── Market state ───────────────────────────────────────────────────────────
@@ -639,6 +709,7 @@ def open_position(req: OpenPositionRequest):
         "source":       "user",
     }
     positions_db.insert_position(pos)
+    _schedule_sync()  # JSON сразу, git push через 60 сек
 
     return OpenPositionResponse(
         success=True,
@@ -701,6 +772,7 @@ def close_position(position_id: str):
 
     # Удаляем из открытых
     positions_db.delete_position(position_id)
+    _schedule_sync()  # JSON сразу, git push через 60 сек
 
     return ClosePositionResponse(
         success=True,
@@ -756,5 +828,8 @@ def sync_from_tinkoff():
         }
         positions_db.insert_position(new_pos)
         imported.append(new_pos)
+
+    if imported:
+        _schedule_sync()  # JSON сразу, git push через 60 сек
 
     return {"success": True, "imported": len(imported), "positions": imported}
