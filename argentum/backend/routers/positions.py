@@ -621,56 +621,6 @@ def list_positions():
     )
 
 
-def _list_positions_OLD_BACKUP():
-    """Старая версия без кеша — сохранена на всякий случай."""
-    raw = _load_positions()
-    current_price = _current_silver_price()
-    p_smooth = _current_p_up_smoothed()
-
-    positions_out: list[Position] = []
-    for p in raw:
-        # Update peak in storage if current is higher
-        new_peak = max(float(p.get("peak_price", current_price)), current_price)
-        if new_peak > float(p.get("peak_price", 0)):
-            p["peak_price"] = new_peak
-
-        try:
-            opened = datetime.fromisoformat(p["opened_at"].replace("Z", ""))
-            days_held = (date.today() - opened.date()).days
-        except Exception:
-            days_held = 0
-
-        pnl = ((current_price - p["entry_price"]) / p["entry_price"]) if p.get("entry_price") else 0.0
-        advice, reason = _advise_position(p, current_price, p_smooth)
-
-        positions_out.append(Position(
-            id=p["id"], ticker=p["ticker"], figi=p["figi"],
-            opened_at=p["opened_at"], entry_price=p["entry_price"],
-            lots=p["lots"], lot_size_g=p.get("lot_size_g", 100),
-            peak_price=new_peak,
-            source=p.get("source", "user"),
-            current_price=current_price,
-            days_held=days_held,
-            unrealized_pnl_pct=pnl,
-            advice=advice,
-            advice_reason=reason,
-        ))
-
-    # Persist updated peaks
-    _save_positions(raw)
-
-    master, mreason, can_buy, checks = _master_advise(raw, p_smooth)
-    return PositionsResponse(
-        positions=positions_out,
-        master_signal=master,
-        master_reason=mreason,
-        master_p_up=p_smooth,
-        master_checks=checks,
-        n_open=len(positions_out),
-        can_buy=can_buy,
-    )
-
-
 @router.post("/positions", response_model=OpenPositionResponse)
 def open_position(req: OpenPositionRequest):
     """Открыть новую позицию: Tinkoff order + сохранить в store."""
