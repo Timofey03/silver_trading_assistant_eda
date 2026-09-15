@@ -1,11 +1,11 @@
 E3b Daily Training Report — 2026-09-15
 ==================================================
 
-  sharpe              : 1.000
-  annual_return       :  +13.54%
-  max_dd              :  -18.86%
-  win_rate            :  +61.70%
-  n_trades            : 94
-  profit_factor       : 3.233
+  sharpe              : 0.931
+  annual_return       :  +13.15%
+  max_dd              :  -28.29%
+  win_rate            :  +62.90%
+  n_trades            : 89
+  profit_factor       : 3.013
   oos_accuracy        : None
   psr                 : 1.000
