@@ -19,7 +19,7 @@
   "kurtosis": 12.368,
   "psr": 1.0,
   "dsr": 0.001,
-  "n_predictions": 2910,
+  "n_predictions": 2940,
   "experiment": "e3b_ensemble_breakout",
   "features_pool": 105,
   "features_top_k": 30,
