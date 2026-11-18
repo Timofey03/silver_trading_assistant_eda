@@ -1,8 +1,8 @@
 {
   "date": "2026-11-18T00:00:00",
-  "close": 45.60499954223633,
-  "p_up": 0.3205958893876359,
-  "signal": "SELL",
+  "close": 45.16999816894531,
+  "p_up": 0.5730671120192616,
+  "signal": "BUY",
   "entry_threshold": 0.48,
   "exit_threshold": 0.35,
   "trail_pct": 0.2,
@@ -47,8 +47,8 @@
   "signal_changed": true,
   "previous_signal": "HOLD",
   "previous_dir": "2026-11-18",
-  "headline": "\ud83d\udce2 \u041d\u041e\u0412\u042b\u0419 \u0421\u0418\u0413\u041d\u0410\u041b: HOLD \u2192 SELL",
-  "explanation": "\u041c\u043e\u0434\u0435\u043b\u044c \u0441\u043c\u0435\u043d\u0438\u043b\u0430 \u0441\u0438\u0433\u043d\u0430\u043b \u0441 \u00abHOLD\u00bb \u043d\u0430 \u00abSELL\u00bb.",
-  "run_time_utc": "133542",
+  "headline": "\ud83d\udce2 \u041d\u041e\u0412\u042b\u0419 \u0421\u0418\u0413\u041d\u0410\u041b: HOLD \u2192 BUY",
+  "explanation": "\u041c\u043e\u0434\u0435\u043b\u044c \u0441\u043c\u0435\u043d\u0438\u043b\u0430 \u0441\u0438\u0433\u043d\u0430\u043b \u0441 \u00abHOLD\u00bb \u043d\u0430 \u00abBUY\u00bb.",
+  "run_time_utc": "191007",
   "run_date_utc": "2026-11-18"
 }
